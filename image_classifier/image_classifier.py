@@ -16,6 +16,8 @@ from skimage import data
 
 
 def main():
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+    
     command = sys.argv[1]
     
     if command =='train':
@@ -49,14 +51,18 @@ def train_command(argv):
                         type=int,
                         default=32,
                         help="Image height.")
+    parser.add_argument('--split',
+                        type=int,
+                        default=10,
+                        help="Split every image into the specified number of images by cropping to a random part.")
     parser.add_argument('--epoch',
                         type=int,
-                        default=1,
+                        default=10,
                         help="Number of epochs to train.")
 
     args = parser.parse_args(argv)
 
-    train_image_classifier(args.data, model=args.model, image_width=args.width, image_height=args.height, n_epoch=args.epoch)
+    train_image_classifier(args.data, model=args.model, image_width=args.width, image_height=args.height, split_count=args.split, n_epoch=args.epoch)
 
 
 def test_command(argv):
@@ -93,6 +99,8 @@ def run_command(argv):
 
 def train_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
                            split_count=10, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
+    print("Preparing Data ...")
+
     data_dict, label_names = load_data_dict(data_directory)
     data_dict = oversample_data_dict(data_dict)
     train_images, train_labels = flatten_data_dict(data_dict)
@@ -103,6 +111,8 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     
     n_classes = len(label_names)
     
+    print("Initializing Network ...")
+
     sess = tf.Session()
 
     network_info = dict()
@@ -128,7 +138,7 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
 
     load_network(network, sess, network_info, model)
 
-    print("Started Training")
+    print("Training Network ...")
     for epoch in range(n_epoch):
         start_time = time.time()
         for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
@@ -156,6 +166,8 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     save_network(network, sess, network_info, model)    
 
     sess.close()
+    
+    print("Finished Training")
 
 
 def test_image_classifier(data_directory, model='img_classifier',
@@ -224,7 +236,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
         results = sorted(results, key=lambda e: e[1], reverse=True)
         for i, v in results:
             if v > 0.001:
-                print("{:8.3}% : {}".format(v * 100, label_names[i]))
+                print("{:5.1f}% : {}".format(v * 100, label_names[i]))
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
