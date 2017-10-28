@@ -8,6 +8,7 @@ import argparse
 import sys
 import os
 import time
+import json
 import random
 import numpy as np
 import tensorflow as tf
@@ -240,23 +241,29 @@ def run_image_classifier(image_paths, model='img_classifier'):
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
-    tl.files.save_npz(network.all_params , name=model+'_weights.npz', sess=sess)
-    np.save(model+'_info.npy', network_info)
+    weight_file = model + '.weights.npz'
+    tl.files.save_npz(network.all_params , name=weight_file, sess=sess)
+
+    info_file = model + '.model'
+    with open(info_file, 'w') as outfile:
+        json.dump(network_info, outfile, indent=4)
 
 
 def load_network(network=None, sess=None, network_info=None, model='img_classifier'):
     loaded_params = None
     loaded_info = dict()
     
-    weight_file = model + '_weights.npz'
+    weight_file = model + '.weights.npz'
     if os.path.isfile(weight_file):
         loaded_params = tl.files.load_npz(name=weight_file)
         if sess != None and network != None: 
             tl.files.assign_params(sess, loaded_params, network)
 
-    info_file = model + '_info.npy'
+    info_file = model + '.model'
     if os.path.isfile(info_file):
-        loaded_info = np.load(info_file).item()
+        with(open(info_file)) as infile:
+            loaded_info = json.load(infile)
+        print("INFO", loaded_info)
         if network_info != None:
             network_info.update(loaded_info)
         
