@@ -176,8 +176,8 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
                 train_loss += err
                 train_acc += batch_acc
                 n_batch += 1
-            print("    Train loss: {:8.5}".format(train_loss / n_batch))
-            print("    Train acc:  {:8.5}".format(train_acc / n_batch))
+            print("    Train loss: {:8.5f}".format(train_loss / n_batch))
+            print("    Train acc:  {:8.5f}".format(train_acc / n_batch))
 
     network_info['trained_epochs'] += n_epoch
 
