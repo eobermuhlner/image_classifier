@@ -14,6 +14,7 @@ import numpy as np
 import tensorflow as tf
 import tensorlayer as tl
 from skimage import data
+from skimage import transform
 
 
 def main():
@@ -52,6 +53,10 @@ def train_command(argv):
                         type=int,
                         default=32,
                         help="Image height.")
+    parser.add_argument('--prepare',
+                        choices=['crop', 'resize'],
+                        default='crop',
+                        help="How to prepare the input images to fit the desired width/height.")
     parser.add_argument('--split',
                         type=int,
                         default=10,
@@ -63,7 +68,7 @@ def train_command(argv):
 
     args = parser.parse_args(argv)
 
-    train_image_classifier(args.data, model=args.model, image_width=args.width, image_height=args.height, split_count=args.split, n_epoch=args.epoch)
+    train_image_classifier(args.data, model=args.model, image_width=args.width, image_height=args.height, prepare=args.prepare, split_count=args.split, n_epoch=args.epoch)
 
 
 def test_command(argv):
@@ -99,14 +104,19 @@ def run_command(argv):
 
 
 def train_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
-                           split_count=10, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
+                           prepare='crop', split_count=10, 
+                           batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
     print("Preparing Data ...")
 
     data_dict, label_names = load_data_dict(data_directory)
     data_dict = oversample_data_dict(data_dict)
     train_images, train_labels = flatten_data_dict(data_dict)
-    train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
     
+    if prepare == 'crop':
+        train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
+    elif prepare == 'resize':
+        train_images = resize_images(train_images, image_width, image_height)
+        
     X_train = np.asarray(train_images, dtype=np.float32)
     y_train = np.asarray(train_labels, dtype=np.int32)
     
@@ -119,6 +129,7 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info = dict()
     network_info['version'] = '0.1'
     network_info['label_names'] = label_names
+    network_info['prepare'] = prepare
     network_info['trained_epochs'] = 0
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
@@ -139,10 +150,15 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
 
     load_network(network, sess, network_info, model)
 
+    def distort_img(img):
+        img = tl.prepro.flip_axis(img, axis=1, is_random=True)
+        return img
+
     print("Training Network ...")
     for epoch in range(n_epoch):
         start_time = time.time()
         for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
+            X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
             feed_dict = {x: X_train_batch, y_target: y_train_batch}
             feed_dict.update(network.all_drop) # enable noise layers
             sess.run(train_op, feed_dict=feed_dict)
@@ -152,6 +168,7 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
             
             train_loss, train_acc, n_batch = 0, 0, 0
             for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
+                X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
                 dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(dp_dict)
@@ -172,18 +189,25 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
 
 
 def test_image_classifier(data_directory, model='img_classifier',
-                           split_count=10, oversample=False, batch_size=None):
+                           split_count=10, 
+                           oversample=False, batch_size=None):
 
     loaded_params, network_info = load_network(model=model)
     image_width = network_info['image_width']
     image_height = network_info['image_height']
     image_channels = network_info['image_channels']
+    prepare = network_info['prepare']
+    label_names = network_info['label_names']
 
-    data_dict, label_names = load_data_dict(data_directory)
+    data_dict, _ = load_data_dict(data_directory)
     if oversample:
         data_dict = oversample_data_dict(data_dict)
     train_images, train_labels = flatten_data_dict(data_dict)
-    train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
+
+    if prepare == 'crop':
+        train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
+    elif prepare == 'resize':
+        train_images = resize_images(train_images, image_width, image_height)
 
     X_test = np.asarray(train_images, dtype=np.float32)
     y_test = np.asarray(train_labels, dtype=np.int32)
@@ -211,6 +235,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
     image_width = network_info['image_width']
     image_height = network_info['image_height']
     image_channels = network_info['image_channels']
+    prepare = network_info['prepare']
     
     n_classes = len(label_names)
     batch_size = 1
@@ -225,7 +250,11 @@ def run_image_classifier(image_paths, model='img_classifier'):
     
     for image_path in image_paths:
         image = data.imread(image_path)
-        image = center_crop_image(image, image_width, image_height)
+        
+        if prepare == 'crop':
+            image = center_crop_image(image, image_width, image_height)
+        elif prepare == 'resize':
+            image = resize_images([image], image_width, image_height)[0]
     
         X_run = np.asarray([image], dtype=np.float32)
 
@@ -360,6 +389,7 @@ def flatten_data_dict(data_dict):
             result_labels.append(label)
     return result_images, result_labels
 
+
 def split_random_images(images, labels, width, height, count):
     """Splits the given images and labels into random images of specified pixel size."""
 
@@ -375,6 +405,13 @@ def split_random_images(images, labels, width, height, count):
             result_labels.append(labels[i])
     return result_images, result_labels
 
+
+def resize_images(images, width, height):
+    result_images = []
+    for i in range(len(images)):
+        result_images.append(transform.resize(images[i], (height, width, 3)))
+    return result_images
+    
 
 def center_crop_image(image, width, height):
     w = image.shape[0]
