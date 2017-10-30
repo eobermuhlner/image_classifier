@@ -15,6 +15,7 @@ import tensorflow as tf
 import tensorlayer as tl
 from skimage import data
 from skimage import transform
+import matplotlib.pyplot as plt
 
 
 def main():
@@ -22,7 +23,9 @@ def main():
     
     command = sys.argv[1]
     
-    if command =='train':
+    if command =='model':
+        model_command(sys.argv[2:])
+    elif command =='train':
         train_command(sys.argv[2:])
     elif command == 'test':
         test_command(sys.argv[2:])
@@ -32,7 +35,7 @@ def main():
         print("Unknown command: {}".format(command))
 
 
-def train_command(argv):    
+def model_command(argv):    
     parser = argparse.ArgumentParser(description="Train to classify images into categories.")
 
     parser.add_argument('--model',
@@ -57,6 +60,25 @@ def train_command(argv):
                         choices=['crop', 'resize'],
                         default='crop',
                         help="How to prepare the input images to fit the desired width/height.")
+
+    args = parser.parse_args(argv)
+
+    model_image_classifier(args.data, 
+                           model=args.model, 
+                           image_width=args.width, 
+                           image_height=args.height, 
+                           prepare=args.prepare)
+
+
+def train_command(argv):    
+    parser = argparse.ArgumentParser(description="Train to classify images into categories.")
+
+    parser.add_argument('--model',
+                        default='img_classifier',
+                        help="Model name.")
+    parser.add_argument('--data',
+                        default=".",
+                        help="Root directory containing one subdirectory filled with images for every category.")
     parser.add_argument('--split',
                         type=int,
                         default=10,
@@ -74,9 +96,6 @@ def train_command(argv):
 
     train_image_classifier(args.data, 
                            model=args.model, 
-                           image_width=args.width, 
-                           image_height=args.height, 
-                           prepare=args.prepare, 
                            split_count=args.split, 
                            learning_rate=args.learning_rate, 
                            n_epoch=args.epoch)
@@ -115,17 +134,10 @@ def run_command(argv):
     run_image_classifier(args.images, model=args.model)
 
 
-def train_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
-                           prepare='crop', split_count=10, 
-                           batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
-    print("Preparing Data ...")
-
-    data_paths_dict, label_names = load_data_paths(data_directory)
+def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
+                           prepare='crop'):
+    _, label_names = load_data_paths(data_directory)
         
-    n_classes = len(label_names)
-    
-    print("Initializing Network ...")
-
     sess = tf.Session()
 
     network_info = dict()
@@ -136,7 +148,33 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
     network_info['image_channels'] = image_channels
+
+    tl.layers.initialize_global_variables(sess)
+
+    save_network(None, sess, network_info, model)
+    print("Created model '{}':".format(model))
+    print(json.dumps(network_info, indent=4))
+    sess.close()
+
+
+def train_image_classifier(data_directory, model='img_classifier',
+                           split_count=10, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
     
+    loaded_params, network_info = load_network(model=model)
+    label_names = network_info['label_names']
+    image_width = network_info['image_width']
+    image_height = network_info['image_height']
+    image_channels = network_info['image_channels']
+    prepare = network_info['prepare']
+    n_classes = len(label_names)
+
+    print("Preparing Data ...")
+
+    data_paths_dict, _ = load_data_paths(data_directory)
+    
+    print("Initializing Network ...")
+
+    sess = tf.Session()
 
     network, x, y_target, _, cost, acc = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
 
@@ -149,11 +187,11 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
                                       name='adam').minimize(cost, var_list=train_params)
 
     tl.layers.initialize_global_variables(sess)
-
-    load_network(network, sess, network_info, model)
+    tl.files.assign_params(sess, loaded_params, network)
 
     def distort_img(img):
         img = tl.prepro.flip_axis(img, axis=1, is_random=True)
+        img = tl.prepro.brightness(img, is_random=True)
         return img
 
     print("Training Network ...")
@@ -255,7 +293,9 @@ def test_image_classifier(data_directory, model='img_classifier',
     
     y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
     
-    tl.utils.evaluation(y_test, y_test_predict, n_classes)
+    confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
+    plt.imshow(confusion)
+    plt.show()
     
     sess.close()
 
@@ -302,8 +342,9 @@ def run_image_classifier(image_paths, model='img_classifier'):
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
-    weight_file = model + '.weights.npz'
-    tl.files.save_npz(network.all_params , name=weight_file, sess=sess)
+    if network != None:
+        weight_file = model + '.weights.npz'
+        tl.files.save_npz(network.all_params , name=weight_file, sess=sess)
 
     info_file = model + '.model'
     with open(info_file, 'w') as outfile:
@@ -324,7 +365,6 @@ def load_network(network=None, sess=None, network_info=None, model='img_classifi
     if os.path.isfile(info_file):
         with(open(info_file)) as infile:
             loaded_info = json.load(infile)
-        print("INFO", loaded_info)
         if network_info != None:
             network_info.update(loaded_info)
         
