@@ -61,6 +61,10 @@ def train_command(argv):
                         type=int,
                         default=10,
                         help="Split every image into the specified number of images by cropping to a random part.")
+    parser.add_argument('--learning_rate',
+                        type=float,
+                        default=0.0001,
+                        help="The learning rate.")
     parser.add_argument('--epoch',
                         type=int,
                         default=10,
@@ -68,7 +72,14 @@ def train_command(argv):
 
     args = parser.parse_args(argv)
 
-    train_image_classifier(args.data, model=args.model, image_width=args.width, image_height=args.height, prepare=args.prepare, split_count=args.split, n_epoch=args.epoch)
+    train_image_classifier(args.data, 
+                           model=args.model, 
+                           image_width=args.width, 
+                           image_height=args.height, 
+                           prepare=args.prepare, 
+                           split_count=args.split, 
+                           learning_rate=args.learning_rate, 
+                           n_epoch=args.epoch)
 
 
 def test_command(argv):
@@ -84,6 +95,7 @@ def test_command(argv):
     args = parser.parse_args(argv)
 
     test_image_classifier(args.data, model=args.model)
+
 
 def run_command(argv):
     parser = argparse.ArgumentParser(description="Run to classify images into categories.")
@@ -108,18 +120,8 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
                            batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
     print("Preparing Data ...")
 
-    data_dict, label_names = load_data_dict(data_directory)
-    data_dict = oversample_data_dict(data_dict)
-    train_images, train_labels = flatten_data_dict(data_dict)
-    
-    if prepare == 'crop':
-        train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
-    elif prepare == 'resize':
-        train_images = resize_images(train_images, image_width, image_height)
+    data_paths_dict, label_names = load_data_paths(data_directory)
         
-    X_train = np.asarray(train_images, dtype=np.float32)
-    y_train = np.asarray(train_labels, dtype=np.int32)
-    
     n_classes = len(label_names)
     
     print("Initializing Network ...")
@@ -157,6 +159,11 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     print("Training Network ...")
     for epoch in range(n_epoch):
         start_time = time.time()
+        
+        train_images, train_labels = random_batch(data_paths_dict, batch_size=1000, prepare=prepare, image_width=image_width, image_height=image_height)
+        X_train = np.asarray(train_images, dtype=np.float32)
+        y_train = np.asarray(train_labels, dtype=np.int32)
+    
         for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
             X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
             feed_dict = {x: X_train_batch, y_target: y_train_batch}
@@ -166,6 +173,10 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
         if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
             print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
             
+            train_images, train_labels = random_batch(data_paths_dict, prepare=prepare, image_width=image_width, image_height=image_height)
+            X_train = np.asarray(train_images, dtype=np.float32)
+            y_train = np.asarray(train_labels, dtype=np.int32)
+    
             train_loss, train_acc, n_batch = 0, 0, 0
             for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
                 X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
@@ -186,6 +197,27 @@ def train_image_classifier(data_directory, model='img_classifier', image_width=3
     sess.close()
     
     print("Finished Training")
+
+
+def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32):
+    images = []
+    labels = []
+    
+    all_labels = list(data_paths_dict.keys())
+    for _ in range(batch_size):
+        label = random.choice(all_labels)
+        path = random.choice(data_paths_dict[label])
+        image = data.imread(path)
+        
+        if prepare == 'crop':
+            image = random_crop_image(image, image_width, image_height)
+        elif prepare == 'resize':
+            image = resize_image(image, image_width, image_height)
+
+        labels.append(label)
+        images.append(image)
+
+    return images, labels
 
 
 def test_image_classifier(data_directory, model='img_classifier',
@@ -265,7 +297,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
         results = [(i, x) for i, x in enumerate(res[0])]
         results = sorted(results, key=lambda e: e[1], reverse=True)
         for i, v in results:
-            if v > 0.001:
+            if v > 0.01:
                 print("{:5.1f}% : {}".format(v * 100, label_names[i]))
 
 
@@ -343,7 +375,22 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
     correct_prediction = tf.equal(tf.argmax(y, 1), y_target)
     acc = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
     return network, x, y_target, y_op, cost, acc 
-    
+
+
+def load_data_paths(data_directory, extension='.jpg'):
+    directories = [d for d in os.listdir(data_directory)
+                   if os.path.isdir(os.path.join(data_directory, d))]
+    label_names = []
+    data_dict = dict()
+    for i, d in enumerate(directories):
+        label_names.append(d)
+        label_directory = os.path.join(data_directory, d)
+        file_names = [os.path.join(label_directory, f)
+                      for f in os.listdir(label_directory)
+                      if f.endswith(extension)]
+        data_dict[i] = file_names
+    return data_dict, label_names
+        
 
 def load_data_dict(data_directory, extension='.jpg'):
     """Loads the images and labels from the specified directory into a dictionary and separate list label names."""
@@ -397,11 +444,7 @@ def split_random_images(images, labels, width, height, count):
     result_labels = []
     for i in range(len(images)):
         for _ in range(count):
-            w = images[i].shape[0]
-            h = images[i].shape[1]
-            x = random.randint(0, w - width)
-            y = random.randint(0, h - height)
-            result_images.append(images[i][x:x+width, y:y+height])
+            result_images.append(random_crop_image(images[i], width, height))
             result_labels.append(labels[i])
     return result_images, result_labels
 
@@ -409,9 +452,21 @@ def split_random_images(images, labels, width, height, count):
 def resize_images(images, width, height):
     result_images = []
     for i in range(len(images)):
-        result_images.append(transform.resize(images[i], (height, width, 3)))
+        result_images.append(resize_image(images[i], width, height))
     return result_images
     
+
+def resize_image(image, width, height):
+    return transform.resize(image, (height, width, 3))
+
+
+def random_crop_image(image, width, height):
+    w = image.shape[0]
+    h = image.shape[1]
+    x = random.randint(0, w - width)
+    y = random.randint(0, h - height)
+    return image[x:x+width, y:y+height]
+
 
 def center_crop_image(image, width, height):
     w = image.shape[0]
