@@ -189,11 +189,6 @@ def train_image_classifier(data_directory, model='img_classifier',
     tl.layers.initialize_global_variables(sess)
     tl.files.assign_params(sess, loaded_params, network)
 
-    def distort_img(img):
-        img = tl.prepro.flip_axis(img, axis=1, is_random=True)
-        img = tl.prepro.brightness(img, is_random=True)
-        return img
-
     print("Training Network ...")
     for epoch in range(n_epoch):
         start_time = time.time()
@@ -211,22 +206,9 @@ def train_image_classifier(data_directory, model='img_classifier',
         if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
             print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
             
-            train_images, train_labels = random_batch(data_paths_dict, prepare=prepare, image_width=image_width, image_height=image_height)
-            X_train = np.asarray(train_images, dtype=np.float32)
-            y_train = np.asarray(train_labels, dtype=np.int32)
-    
-            train_loss, train_acc, n_batch = 0, 0, 0
-            for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
-                X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
-                dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
-                feed_dict = {x: X_train_batch, y_target: y_train_batch}
-                feed_dict.update(dp_dict)
-                err, batch_acc = sess.run([cost, acc], feed_dict=feed_dict)
-                train_loss += err
-                train_acc += batch_acc
-                n_batch += 1
-            print("    Train loss: {:8.5f}".format(train_loss / n_batch))
-            print("    Train acc:  {:8.5f}".format(train_acc / n_batch))
+            train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
+            print("    Train loss: {:8.5f}".format(train_loss))
+            print("    Train acc:  {:8.5f}".format(train_acc))
 
     network_info['trained_epochs'] += n_epoch
 
@@ -237,25 +219,24 @@ def train_image_classifier(data_directory, model='img_classifier',
     print("Finished Training")
 
 
-def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32):
-    images = []
-    labels = []
-    
-    all_labels = list(data_paths_dict.keys())
-    for _ in range(batch_size):
-        label = random.choice(all_labels)
-        path = random.choice(data_paths_dict[label])
-        image = data.imread(path)
-        
-        if prepare == 'crop':
-            image = random_crop_image(image, image_width, image_height)
-        elif prepare == 'resize':
-            image = resize_image(image, image_width, image_height)
+def distort_img(img):
+    img = tl.prepro.flip_axis(img, axis=1, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    return img
 
-        labels.append(label)
-        images.append(image)
 
-    return images, labels
+def calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size=100):
+    train_loss, train_acc, n_batch = 0, 0, 0
+    for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
+        X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
+        dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
+        feed_dict = {x: X_train_batch, y_target: y_train_batch}
+        feed_dict.update(dp_dict)
+        err, batch_acc = sess.run([cost, acc], feed_dict=feed_dict)
+        train_loss += err
+        train_acc += batch_acc
+        n_batch += 1
+    return train_loss / n_batch, train_acc / n_batch
 
 
 def test_image_classifier(data_directory, model='img_classifier',
@@ -277,6 +258,7 @@ def test_image_classifier(data_directory, model='img_classifier',
     if prepare == 'crop':
         train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
     elif prepare == 'resize':
+        random_crop_images_by_factor(train_images, factor=0.9)
         train_images = resize_images(train_images, image_width, image_height)
 
     X_test = np.asarray(train_images, dtype=np.float32)
@@ -326,7 +308,8 @@ def run_image_classifier(image_paths, model='img_classifier'):
         if prepare == 'crop':
             image = center_crop_image(image, image_width, image_height)
         elif prepare == 'resize':
-            image = resize_images([image], image_width, image_height)[0]
+            image = random_crop_image_by_factor(image, factor=0.9)
+            image = resize_image(image, image_width, image_height)
     
         X_run = np.asarray([image], dtype=np.float32)
 
@@ -451,6 +434,28 @@ def load_data_dict(data_directory, extension='.jpg'):
     return data_dict, label_names
 
 
+def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32):
+    images = []
+    labels = []
+    
+    all_labels = list(data_paths_dict.keys())
+    for _ in range(batch_size):
+        label = random.choice(all_labels)
+        path = random.choice(data_paths_dict[label])
+        image = data.imread(path)
+        
+        if prepare == 'crop':
+            image = random_crop_image(image, image_width, image_height)
+        elif prepare == 'resize':
+            image = random_crop_image_by_factor(image, factor=0.9)
+            image = resize_image(image, image_width, image_height)
+
+        labels.append(label)
+        images.append(image)
+
+    return images, labels
+
+
 def oversample_data_dict(data_dict):
     """Oversamples the specified dictionary so that all categories contain the same number of images."""
     result_data_dict = dict()
@@ -498,6 +503,19 @@ def resize_images(images, width, height):
 
 def resize_image(image, width, height):
     return transform.resize(image, (height, width, 3))
+
+
+def random_crop_images_by_factor(images, factor=0.9):
+    result_images = []
+    for i in range(len(images)):
+        result_images.append(random_crop_image_by_factor(images[i], factor))
+    return result_images
+
+
+def random_crop_image_by_factor(image, factor=0.9):
+        w = int(image.shape[0] * factor)
+        h = int(image.shape[1] * factor)
+        return random_crop_image(image, w, h)
 
 
 def random_crop_image(image, width, height):
