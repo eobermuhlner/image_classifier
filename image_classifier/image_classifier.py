@@ -8,6 +8,7 @@ import argparse
 import sys
 import os
 import time
+import math
 import json
 import random
 import numpy as np
@@ -44,6 +45,14 @@ def model_command(argv):
     parser.add_argument('--data',
                         default=".",
                         help="Root directory containing one subdirectory filled with images for every category.")
+    parser.add_argument('--validate',
+                        type=float,
+                        default=0.2,
+                        help="Validate fraction of the training data.")
+    parser.add_argument('--test',
+                        type=float,
+                        default=0.0,
+                        help="Test fraction of the training data.")
     parser.add_argument('--channel',
                         choices=['rgb', 'r', 'g', 'b', 'gray'],
                         default='rgb',
@@ -64,7 +73,9 @@ def model_command(argv):
     args = parser.parse_args(argv)
 
     model_image_classifier(args.data, 
-                           model=args.model, 
+                           model=args.model,
+                           validate_fraction=args.validate, 
+                           test_fraction=args.test, 
                            image_width=args.width, 
                            image_height=args.height, 
                            prepare=args.prepare)
@@ -79,6 +90,15 @@ def train_command(argv):
     parser.add_argument('--data',
                         default=".",
                         help="Root directory containing one subdirectory filled with images for every category.")
+    parser.add_argument('--validate',
+                        type=float,
+                        help="Validate fraction of the training data.")
+    parser.add_argument('--test',
+                        type=float,
+                        help="Test fraction of the training data.")
+    parser.add_argument('--format',
+                        default='.jpg',
+                        help="Image format.")
     parser.add_argument('--split',
                         type=int,
                         default=10,
@@ -95,7 +115,10 @@ def train_command(argv):
     args = parser.parse_args(argv)
 
     train_image_classifier(args.data, 
-                           model=args.model, 
+                           model=args.model,
+                           image_format=args.format, 
+                           validate_fraction=args.validate, 
+                           test_fraction=args.test, 
                            split_count=args.split, 
                            learning_rate=args.learning_rate, 
                            n_epoch=args.epoch)
@@ -110,6 +133,9 @@ def test_command(argv):
     parser.add_argument('--data',
                         default=".",
                         help="Root directory containing one subdirectory filled with images for every category.")
+    parser.add_argument('--format',
+                        default='.jpg',
+                        help="Image format.")
 
     args = parser.parse_args(argv)
 
@@ -135,6 +161,7 @@ def run_command(argv):
 
 
 def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
+                           validate_fraction=None, test_fraction=None, 
                            prepare='crop'):
     _, label_names = load_data_paths(data_directory)
         
@@ -148,6 +175,8 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
     network_info['image_channels'] = image_channels
+    network_info['validate_fraction'] = validate_fraction
+    network_info['test_fraction'] = test_fraction
 
     tl.layers.initialize_global_variables(sess)
 
@@ -157,8 +186,9 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     sess.close()
 
 
-def train_image_classifier(data_directory, model='img_classifier',
-                           split_count=10, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
+def train_image_classifier(data_directory, model='img_classifier', image_format='.jpg',
+                           validate_fraction=0.2, test_fraction=0,
+                           split_count=10, load_size=1000, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
     
     loaded_params, network_info = load_network(model=model)
     label_names = network_info['label_names']
@@ -167,10 +197,29 @@ def train_image_classifier(data_directory, model='img_classifier',
     image_channels = network_info['image_channels']
     prepare = network_info['prepare']
     n_classes = len(label_names)
+    if validate_fraction is None:
+        if 'validate_fraction' in network_info:
+            validate_fraction = network_info['validate_fraction']
+        else:
+            validate_fraction = 0.2
+    if test_fraction is None:
+        if 'test_fraction' in network_info:
+            test_fraction = network_info['test_fraction']
+        else:
+            test_fraction = 0
 
     print("Preparing Data ...")
 
-    data_paths_dict, _ = load_data_paths(data_directory)
+    data_paths_dict, _ = load_data_paths(data_directory, extension=image_format)
+    
+    train_paths_dict, validate_paths_dict, test_paths_dict = split_data_paths_dict(data_paths_dict, validate_fraction=validate_fraction, test_fraction=test_fraction)
+
+    for label in range(len(label_names)):
+        print("  {:20s} : {:3d} train images, {:3d} validate images, {:3d} test images".format(
+            label_names[label],
+            len(train_paths_dict[label]),
+            len(validate_paths_dict[label]),
+            len(test_paths_dict[label])))
     
     print("Initializing Network ...")
 
@@ -187,15 +236,20 @@ def train_image_classifier(data_directory, model='img_classifier',
                                       name='adam').minimize(cost, var_list=train_params)
 
     tl.layers.initialize_global_variables(sess)
-    tl.files.assign_params(sess, loaded_params, network)
+    if loaded_params is not None:
+        tl.files.assign_params(sess, loaded_params, network)
 
     print("Training Network ...")
     for epoch in range(n_epoch):
         start_time = time.time()
         
-        train_images, train_labels = random_batch(data_paths_dict, batch_size=1000, prepare=prepare, image_width=image_width, image_height=image_height)
+        train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
         X_train = np.asarray(train_images, dtype=np.float32)
         y_train = np.asarray(train_labels, dtype=np.int32)
+
+        validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+        X_validate = np.asarray(validate_images, dtype=np.float32)
+        y_validate = np.asarray(validate_labels, dtype=np.int32)
     
         for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
             X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
@@ -209,6 +263,10 @@ def train_image_classifier(data_directory, model='img_classifier',
             train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
             print("    Train loss: {:8.5f}".format(train_loss))
             print("    Train acc:  {:8.5f}".format(train_acc))
+            
+            validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
+            print("    Validate loss: {:8.5f}".format(validate_loss))
+            print("    Validate acc:  {:8.5f}".format(validate_acc))
 
     network_info['trained_epochs'] += n_epoch
 
@@ -239,7 +297,7 @@ def calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, b
     return train_loss / n_batch, train_acc / n_batch
 
 
-def test_image_classifier(data_directory, model='img_classifier',
+def test_image_classifier(data_directory, model='img_classifier', image_format='.jpg',
                            split_count=10, 
                            oversample=False, batch_size=None):
 
@@ -414,6 +472,24 @@ def load_data_paths(data_directory, extension='.jpg'):
         data_dict[i] = file_names
     return data_dict, label_names
         
+
+def split_data_paths_dict(data_paths_dict, validate_fraction=0, test_fraction=0):
+    train_paths_dict = dict()
+    validate_paths_dict = dict()
+    test_paths_dict = dict()
+    
+    for k, v in data_paths_dict.items():
+        n = len(v)
+        validate_n = math.ceil(n * validate_fraction)
+        test_n = math.ceil(n * test_fraction)
+        train_n = n - validate_n - test_n
+        
+        train_paths_dict[k] = v[:train_n]
+        validate_paths_dict[k] = v[train_n:train_n+validate_n]
+        test_paths_dict[k] = v[train_n+validate_n:]
+    
+    return train_paths_dict, validate_paths_dict, test_paths_dict
+    
 
 def load_data_dict(data_directory, extension='.jpg'):
     """Loads the images and labels from the specified directory into a dictionary and separate list label names."""
