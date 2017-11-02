@@ -118,7 +118,8 @@ def train_command(argv):
                            model=args.model,
                            image_format=args.format, 
                            validate_fraction=args.validate, 
-                           test_fraction=args.test, 
+                           test_fraction=args.test,
+                           is_train=True, 
                            split_count=args.split, 
                            learning_rate=args.learning_rate, 
                            n_epoch=args.epoch)
@@ -136,10 +137,21 @@ def test_command(argv):
     parser.add_argument('--format',
                         default='.jpg',
                         help="Image format.")
+    parser.add_argument('--validate',
+                        type=float,
+                        help="Validate fraction of the training data.")
+    parser.add_argument('--test',
+                        type=float,
+                        help="Test fraction of the training data.")
 
     args = parser.parse_args(argv)
 
-    test_image_classifier(args.data, model=args.model)
+    train_image_classifier(args.data, 
+                           model=args.model,
+                           image_format=args.format, 
+                           validate_fraction=args.validate, 
+                           test_fraction=args.test,
+                           is_train=False)
 
 
 def run_command(argv):
@@ -188,7 +200,8 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
 
 def train_image_classifier(data_directory, model='img_classifier', image_format='.jpg',
                            validate_fraction=0.2, test_fraction=0,
-                           split_count=10, load_size=1000, batch_size=100, n_epoch=10, learning_rate=0.0001, print_freq=1):
+                           split_count=10, load_size=1000, batch_size=100,
+                           is_train=True, n_epoch=10, learning_rate=0.0001, print_freq=1):
     
     loaded_params, network_info = load_network(model=model)
     label_names = network_info['label_names']
@@ -225,7 +238,7 @@ def train_image_classifier(data_directory, model='img_classifier', image_format=
 
     sess = tf.Session()
 
-    network, x, y_target, _, cost, acc = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, y_target, y_op, cost, acc = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
 
     train_params = network.all_params
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate,
@@ -239,38 +252,53 @@ def train_image_classifier(data_directory, model='img_classifier', image_format=
     if loaded_params is not None:
         tl.files.assign_params(sess, loaded_params, network)
 
-    print("Training Network ...")
-    for epoch in range(n_epoch):
-        start_time = time.time()
-        
-        train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
-        X_train = np.asarray(train_images, dtype=np.float32)
-        y_train = np.asarray(train_labels, dtype=np.int32)
+    if is_train:
+        print("Training Network ...")
 
-        validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
-        X_validate = np.asarray(validate_images, dtype=np.float32)
-        y_validate = np.asarray(validate_labels, dtype=np.int32)
+        for epoch in range(n_epoch):
+            start_time = time.time()
+            
+            train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+            X_train = np.asarray(train_images, dtype=np.float32)
+            y_train = np.asarray(train_labels, dtype=np.int32)
     
-        for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
-            X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
-            feed_dict = {x: X_train_batch, y_target: y_train_batch}
-            feed_dict.update(network.all_drop) # enable noise layers
-            sess.run(train_op, feed_dict=feed_dict)
+            validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+            X_validate = np.asarray(validate_images, dtype=np.float32)
+            y_validate = np.asarray(validate_labels, dtype=np.int32)
         
-        if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
-            print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
+            for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
+                X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
+                feed_dict = {x: X_train_batch, y_target: y_train_batch}
+                feed_dict.update(network.all_drop) # enable noise layers
+                sess.run(train_op, feed_dict=feed_dict)
             
-            train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
-            print("    Train loss: {:8.5f}".format(train_loss))
-            print("    Train acc:  {:8.5f}".format(train_acc))
-            
-            validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
-            print("    Validate loss: {:8.5f}".format(validate_loss))
-            print("    Validate acc:  {:8.5f}".format(validate_acc))
+            if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
+                print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
+                
+                train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
+                print("    Train loss: {:8.5f}".format(train_loss))
+                print("    Train acc:  {:8.5f}".format(train_acc))
+                
+                validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
+                print("    Validate loss: {:8.5f}".format(validate_loss))
+                print("    Validate acc:  {:8.5f}".format(validate_acc))
+    
+        network_info['trained_epochs'] += n_epoch
+    
+        save_network(network, sess, network_info, model)    
+    else:
+        print("Testing Network ...")
+        if test_fraction == 0:
+            test_paths_dict = train_paths_dict
+        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+        X_test = np.asarray(test_images, dtype=np.float32)
+        y_test = np.asarray(test_labels, dtype=np.int32)
 
-    network_info['trained_epochs'] += n_epoch
-
-    save_network(network, sess, network_info, model)    
+        y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
+        
+        confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
+        plt.imshow(confusion)
+        plt.show()
 
     sess.close()
     
@@ -295,49 +323,6 @@ def calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, b
         train_acc += batch_acc
         n_batch += 1
     return train_loss / n_batch, train_acc / n_batch
-
-
-def test_image_classifier(data_directory, model='img_classifier', image_format='.jpg',
-                           split_count=10, 
-                           oversample=False, batch_size=None):
-
-    loaded_params, network_info = load_network(model=model)
-    image_width = network_info['image_width']
-    image_height = network_info['image_height']
-    image_channels = network_info['image_channels']
-    prepare = network_info['prepare']
-    label_names = network_info['label_names']
-
-    data_dict, _ = load_data_dict(data_directory)
-    if oversample:
-        data_dict = oversample_data_dict(data_dict)
-    train_images, train_labels = flatten_data_dict(data_dict)
-
-    if prepare == 'crop':
-        train_images, train_labels = split_random_images(train_images, train_labels, image_width, image_height, split_count)
-    elif prepare == 'resize':
-        random_crop_images_by_factor(train_images, factor=0.9)
-        train_images = resize_images(train_images, image_width, image_height)
-
-    X_test = np.asarray(train_images, dtype=np.float32)
-    y_test = np.asarray(train_labels, dtype=np.int32)
-    
-    n_classes = len(label_names)
-    
-    sess = tf.Session()
-
-    network, x, _, y_op, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
-
-    tl.layers.initialize_global_variables(sess)
-    tl.files.assign_params(sess, loaded_params, network)
-    
-    y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
-    
-    confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
-    plt.imshow(confusion)
-    plt.show()
-    
-    sess.close()
 
 
 def run_image_classifier(image_paths, model='img_classifier'):
