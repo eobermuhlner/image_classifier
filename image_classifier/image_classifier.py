@@ -419,10 +419,24 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
                                   strides=(2, 2),
                                   padding='SAME',
                                   name='pool2')
+    network = tl.layers.Conv2d(network,
+                               n_filter=128,
+                               filter_size=(5, 5),
+                               strides=(1, 1),
+                               act=tf.nn.elu,
+                               padding='SAME',
+                               name='conv3')
+    network = tl.layers.MaxPool2d(network,
+                                  filter_size=(2, 2),
+                                  strides=(2, 2),
+                                  padding='SAME',
+                                  name='pool3')
     network = tl.layers.FlattenLayer(network, name='flatten')
     network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
     network = tl.layers.DenseLayer(network, n_units=256, act=tf.nn.elu, name='relu1')
     network = tl.layers.DropoutLayer(network, keep=0.5, name='drop2')
+    network = tl.layers.DenseLayer(network, n_units=n_classes * 32, act=tf.nn.elu, name='dense2')
+    network = tl.layers.DropoutLayer(network, keep=0.5, name='drop3')
     network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
 
     y = network.outputs
