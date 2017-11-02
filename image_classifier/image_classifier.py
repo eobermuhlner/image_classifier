@@ -96,9 +96,6 @@ def train_command(argv):
     parser.add_argument('--test',
                         type=float,
                         help="Test fraction of the training data.")
-    parser.add_argument('--format',
-                        default='.jpg',
-                        help="Image format.")
     parser.add_argument('--split',
                         type=int,
                         default=10,
@@ -116,7 +113,6 @@ def train_command(argv):
 
     train_image_classifier(args.data, 
                            model=args.model,
-                           image_format=args.format, 
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
                            is_train=True, 
@@ -134,9 +130,6 @@ def test_command(argv):
     parser.add_argument('--data',
                         default=".",
                         help="Root directory containing one subdirectory filled with images for every category.")
-    parser.add_argument('--format',
-                        default='.jpg',
-                        help="Image format.")
     parser.add_argument('--validate',
                         type=float,
                         help="Validate fraction of the training data.")
@@ -148,7 +141,6 @@ def test_command(argv):
 
     train_image_classifier(args.data, 
                            model=args.model,
-                           image_format=args.format, 
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
                            is_train=False)
@@ -198,7 +190,7 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     sess.close()
 
 
-def train_image_classifier(data_directory, model='img_classifier', image_format='.jpg',
+def train_image_classifier(data_directory, model='img_classifier',
                            validate_fraction=0.2, test_fraction=0,
                            split_count=10, load_size=1000, batch_size=100,
                            is_train=True, n_epoch=10, learning_rate=0.0001, print_freq=1):
@@ -223,7 +215,7 @@ def train_image_classifier(data_directory, model='img_classifier', image_format=
 
     print("Preparing Data ...")
 
-    data_paths_dict, _ = load_data_paths(data_directory, extension=image_format)
+    data_paths_dict, _ = load_data_paths(data_directory)
     
     train_paths_dict, validate_paths_dict, test_paths_dict = split_data_paths_dict(data_paths_dict, validate_fraction=validate_fraction, test_fraction=test_fraction)
 
@@ -443,7 +435,7 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
     return network, x, y_target, y_op, cost, acc 
 
 
-def load_data_paths(data_directory, extension='.jpg'):
+def load_data_paths(data_directory, extensions=['.jpg', '.png']):
     directories = [d for d in os.listdir(data_directory)
                    if os.path.isdir(os.path.join(data_directory, d))]
     label_names = []
@@ -453,10 +445,16 @@ def load_data_paths(data_directory, extension='.jpg'):
         label_directory = os.path.join(data_directory, d)
         file_names = [os.path.join(label_directory, f)
                       for f in os.listdir(label_directory)
-                      if f.endswith(extension)]
+                      if ends_with(f, extensions)]
         data_dict[i] = file_names
     return data_dict, label_names
         
+
+def ends_with(name, extensions):
+    for e in extensions:
+        if name.endswith(e):
+            return True
+    return False
 
 def split_data_paths_dict(data_paths_dict, validate_fraction=0, test_fraction=0):
     train_paths_dict = dict()
@@ -515,32 +513,6 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
         images.append(image)
 
     return images, labels
-
-
-def oversample_data_dict(data_dict):
-    """Oversamples the specified dictionary so that all categories contain the same number of images."""
-    result_data_dict = dict()
-    max_image_count = 0
-    for images in data_dict.values():
-        max_image_count = max(max_image_count, len(images))
-
-    for label, images in data_dict.items():
-        result_data_dict[label] = images
-        delta = max_image_count - len(images)
-        for i in range(delta):
-            result_data_dict[label].append(images[i % len(images)])
-    return result_data_dict
-
-
-def flatten_data_dict(data_dict):
-    """Flattens the specified data dictionary into a list of images and a list of labels."""
-    result_images = []
-    result_labels = []
-    for label, images in data_dict.items():
-        for image in images:
-            result_images.append(image)
-            result_labels.append(label)
-    return result_images, result_labels
 
 
 def split_random_images(images, labels, width, height, count):
