@@ -574,9 +574,15 @@ def random_crop_images_by_factor(images, factor=0.9):
 
 
 def random_crop_image_by_factor(image, factor=0.9):
-        w = int(image.shape[0] * factor)
-        h = int(image.shape[1] * factor)
-        return random_crop_image(image, w, h)
+    w = int(image.shape[0] * factor)
+    h = int(image.shape[1] * factor)
+    return random_crop_image(image, w, h)
+
+
+def center_crop_image_by_factor(image, factor=0.9):
+    w = int(image.shape[0] * factor)
+    h = int(image.shape[1] * factor)
+    return center_crop_image(image, w, h)
 
 
 def random_crop_image(image, width, height):
