@@ -368,7 +368,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
-    if network != None:
+    if network is not None:
         weight_file = model + '.weights.npz'
         tl.files.save_npz(network.all_params , name=weight_file, sess=sess)
 
@@ -407,7 +407,7 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
                                n_filter=32,
                                filter_size=(5, 5),
                                strides=(1, 1),
-                               act=tf.nn.relu,
+                               act=tf.nn.elu,
                                padding='SAME',
                                name='conv1')
     network = tl.layers.MaxPool2d(network,
@@ -419,7 +419,7 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
                                n_filter=64,
                                filter_size=(5, 5),
                                strides=(1, 1),
-                               act=tf.nn.relu,
+                               act=tf.nn.elu,
                                padding='SAME',
                                name='conv2')
     network = tl.layers.MaxPool2d(network,
@@ -429,7 +429,7 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
                                   name='pool2')
     network = tl.layers.FlattenLayer(network, name='flatten')
     network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
-    network = tl.layers.DenseLayer(network, n_units=256, act=tf.nn.relu, name='relu1')
+    network = tl.layers.DenseLayer(network, n_units=256, act=tf.nn.elu, name='relu1')
     network = tl.layers.DropoutLayer(network, keep=0.5, name='drop2')
     network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
 
