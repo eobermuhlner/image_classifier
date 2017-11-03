@@ -181,6 +181,8 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info['image_channels'] = image_channels
     network_info['validate_fraction'] = validate_fraction
     network_info['test_fraction'] = test_fraction
+    network_info['train_acc'] = list()
+    network_info['validate_acc'] = list()
 
     tl.layers.initialize_global_variables(sess)
 
@@ -270,10 +272,12 @@ def train_image_classifier(data_directory, model='img_classifier',
                 train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
                 print("    Train loss: {:8.5f}".format(train_loss))
                 print("    Train acc:  {:8.5f}".format(train_acc))
+                network_info['train_acc'].append(train_acc)
                 
                 validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
                 print("    Validate loss: {:8.5f}".format(validate_loss))
                 print("    Validate acc:  {:8.5f}".format(validate_acc))
+                network_info['validate_acc'].append(validate_acc)
     
         network_info['trained_epochs'] += n_epoch
     
@@ -295,6 +299,13 @@ def train_image_classifier(data_directory, model='img_classifier',
     sess.close()
     
     print("Finished Training")
+    print("Train acc:   ", network_info['train_acc'])
+    print("Validate acc:", network_info['validate_acc'])
+    
+    plt.plot(network_info['train_acc'], label="Train Accuracy")
+    plt.plot(network_info['validate_acc'], label="Validate Accuracy")
+    plt.legend()
+    plt.show()
 
 
 def distort_img(img):
@@ -431,12 +442,20 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
                                   strides=(2, 2),
                                   padding='SAME',
                                   name='pool3')
+    network = tl.layers.Conv2d(network,
+                               n_filter=256,
+                               filter_size=(5, 5),
+                               strides=(1, 1),
+                               act=tf.nn.elu,
+                               padding='SAME',
+                               name='conv4')
+    network = tl.layers.MaxPool2d(network,
+                                  filter_size=(2, 2),
+                                  strides=(2, 2),
+                                  padding='SAME',
+                                  name='pool4')
     network = tl.layers.FlattenLayer(network, name='flatten')
     network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
-    network = tl.layers.DenseLayer(network, n_units=256, act=tf.nn.elu, name='relu1')
-    network = tl.layers.DropoutLayer(network, keep=0.5, name='drop2')
-    network = tl.layers.DenseLayer(network, n_units=n_classes * 32, act=tf.nn.elu, name='dense2')
-    network = tl.layers.DropoutLayer(network, keep=0.5, name='drop3')
     network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
 
     y = network.outputs
