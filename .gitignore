@@ -1,0 +1,11 @@
+# Eclipse IDE stuff
+
+.project
+.pydevproject
+.settings
+
+# IntelliJ IDEA stuff
+
+*.iml
+.idea
+
