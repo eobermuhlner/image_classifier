@@ -21,7 +21,12 @@ import matplotlib.pyplot as plt
 
 def main():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-    
+
+    if len(sys.argv) <= 1:
+        print("USAGE: classify (model|train|test|run) [options]")
+        print("    Use the --help option on any of the subcommands.")
+        sys.exit(0)
+
     command = sys.argv[1]
     
     if command =='model':
@@ -387,14 +392,14 @@ def load_network(network=None, sess=None, network_info=None, model='img_classifi
     weight_file = model + '.weights.npz'
     if os.path.isfile(weight_file):
         loaded_params = tl.files.load_npz(name=weight_file)
-        if sess != None and network != None: 
+        if sess is not None and network is not None:
             tl.files.assign_params(sess, loaded_params, network)
 
     info_file = model + '.model'
     if os.path.isfile(info_file):
         with(open(info_file)) as infile:
             loaded_info = json.load(infile)
-        if network_info != None:
+        if network_info is not None:
             network_info.update(loaded_info)
         
     return loaded_params, loaded_info
@@ -488,6 +493,7 @@ def ends_with(name, extensions):
         if name.endswith(e):
             return True
     return False
+
 
 def split_data_paths_dict(data_paths_dict, validate_fraction=0, test_fraction=0):
     train_paths_dict = dict()
