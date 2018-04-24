@@ -1,7 +1,7 @@
 '''
 Created on Oct 25, 2017
 
-@author: Eric
+@author: Eric Obermühlner
 '''
 
 import argparse
@@ -23,7 +23,7 @@ def main():
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 
     if len(sys.argv) <= 1:
-        print("USAGE: classify (model|train|test|run) [options]")
+        print("USAGE: classify (model|train|test|run|detect) [options]")
         print("    Use the --help option on any of the subcommands.")
         sys.exit(0)
 
@@ -37,6 +37,8 @@ def main():
         test_command(sys.argv[2:])
     elif command == 'run':
         run_command(sys.argv[2:])
+    elif command == 'detect':
+        detect_command(sys.argv[2:])
     else:
         print("Unknown command: {}".format(command))
 
@@ -167,6 +169,33 @@ def run_command(argv):
     args = parser.parse_args(argv)
 
     run_image_classifier(args.images, model=args.model)
+
+
+def detect_command(argv):
+    parser = argparse.ArgumentParser(description="Run to classify images into categories.")
+
+    parser.add_argument('images',
+                        nargs='+',
+                        help="Image file.")
+    parser.add_argument('--model',
+                        default='img_classifier',
+                        help="Model name.")
+    parser.add_argument('--data',
+                        default=".",
+                        help="Root directory containing one subdirectory filled with images for every category.")
+    parser.add_argument('--actions',
+                        default='',
+                        help="Comma separated actions for categories: in the form category=action. Valid actions are: 'count', 'ignore', 'alert'.")
+
+    args = parser.parse_args(argv)
+
+    action_dict = dict()
+    for action in args.actions.split(","):
+        action_assignment = action.split("=")
+        if len(action_assignment) == 2:
+            action_dict[action_assignment[0]] = action_assignment[1]
+
+    detect_image_classifier(args.images, model=args.model, action_dict=action_dict)
 
 
 def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
@@ -373,6 +402,63 @@ def run_image_classifier(image_paths, model='img_classifier'):
         for i, v in results:
             if v > 0.01:
                 print("{:5.1f}% : {}".format(v * 100, label_names[i]))
+
+
+def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict()):
+
+    loaded_params, network_info = load_network(model=model)
+    label_names = network_info['label_names']
+    image_width = network_info['image_width']
+    image_height = network_info['image_height']
+    image_channels = network_info['image_channels']
+
+    n_classes = len(label_names)
+    batch_size = 1
+
+    sess = tf.Session()
+
+    network, x, _, _, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+    tl.layers.initialize_global_variables(sess)
+    tl.files.assign_params(sess, loaded_params, network)
+
+    dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
+
+    for image_path in image_paths:
+        big_image = data.imread(image_path)
+        print(image_path)
+
+        statistics_dict = dict()
+        for label in label_names:
+            statistics_dict[label] = 0
+
+        image_y = 0
+        while image_y < big_image.shape[0]:
+            image_x = 0
+            while image_x < big_image.shape[1]:
+                image = crop_image(big_image, image_x, image_y, image_width, image_height)
+                if image.shape[0] == image_width and image.shape[1] == image_height:
+                    X_run = np.asarray([image], dtype=np.float32)
+                    feed_dict = {x: X_run}
+                    feed_dict.update(dp_dict)
+                    res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
+                    results = [(i, x) for i, x in enumerate(res[0])]
+                    results = sorted(results, key=lambda e: e[1], reverse=True)
+                    for i, v in results:
+                        if v > 0.5:
+                            action = action_dict.get(label_names[i], 'count')
+                            if action == 'alert':
+                                print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
+                                statistics_dict[label_names[i]] += 1
+                            elif action == 'count':
+                                statistics_dict[label_names[i]] += 1
+
+                image_x += image_width
+            image_y += image_height
+
+        for label, count in statistics_dict.items():
+            action = action_dict.get(label, 'count')
+            if action != 'ignore':
+                print("  {} : {:d}".format(label, count))
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
@@ -610,6 +696,11 @@ def center_crop_image(image, width, height):
     x = int((w - width) / 2)
     y = int((h - height) / 2)
     return image[x:x+width, y:y+height]
+
+
+def crop_image(image, x, y, width, height):
+    return image[x:x+width, y:y+height]
+
 
 if __name__ == '__main__':
     main()
