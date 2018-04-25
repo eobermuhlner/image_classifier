@@ -15,6 +15,7 @@ import numpy as np
 import tensorflow as tf
 import tensorlayer as tl
 from skimage import data
+from skimage import io
 from skimage import transform
 import matplotlib.pyplot as plt
 
@@ -73,7 +74,7 @@ def model_command(argv):
                         default=32,
                         help="Image height.")
     parser.add_argument('--prepare',
-                        choices=['crop', 'resize'],
+                        choices=['crop', 'resize', 'crop+random'],
                         default='crop',
                         help="How to prepare the input images to fit the desired width/height.")
 
@@ -107,7 +108,7 @@ def train_command(argv):
                         type=int,
                         default=10,
                         help="Split every image into the specified number of images by cropping to a random part.")
-    parser.add_argument('--learning_rate',
+    parser.add_argument('--learning-rate',
                         type=float,
                         default=0.0001,
                         help="The learning rate.")
@@ -449,6 +450,9 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
                                 statistics_dict[label_names[i]] += 1
+                            elif action == 'save':
+                                io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, os.path.basename(image_path)), image)
+                                statistics_dict[label_names[i]] += 1
                             elif action == 'count':
                                 statistics_dict[label_names[i]] += 1
 
@@ -559,7 +563,7 @@ def cnn_network(image_width, image_height, image_channels, n_classes, batch_size
     return network, x, y_target, y_op, cost, acc 
 
 
-def load_data_paths(data_directory, extensions=['.jpg', '.png']):
+def load_data_paths(data_directory, extensions=['.jpg', '.png', '.JPG']):
     directories = [d for d in os.listdir(data_directory)
                    if os.path.isdir(os.path.join(data_directory, d))]
     label_names = []
@@ -630,6 +634,9 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
         
         if prepare == 'crop':
             image = random_crop_image(image, image_width, image_height)
+        elif prepare == 'crop+random':
+            image = random_crop_image(image, image_width, image_height)
+            image = tl.prepro.brightness(image, is_random=True)
         elif prepare == 'resize':
             image = random_crop_image_by_factor(image, factor=0.9)
             image = resize_image(image, image_width, image_height)
