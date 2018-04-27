@@ -61,8 +61,8 @@ def model_command(argv):
                         type=float,
                         default=0.0,
                         help="Test fraction of the training data.")
-    parser.add_argument('--channel',
-                        choices=['rgb', 'r', 'g', 'b', 'gray'],
+    parser.add_argument('--color',
+                        choices=['rgb', 'grey'],
                         default='rgb',
                         help="Color channel of images to use.")
     parser.add_argument('--width',
@@ -85,7 +85,8 @@ def model_command(argv):
                            validate_fraction=args.validate, 
                            test_fraction=args.test, 
                            image_width=args.width, 
-                           image_height=args.height, 
+                           image_height=args.height,
+                           image_color=args.color,
                            prepare=args.prepare)
 
 
@@ -199,7 +200,7 @@ def detect_command(argv):
     detect_image_classifier(args.images, model=args.model, action_dict=action_dict)
 
 
-def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_channels=3,
+def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_color="rgb",
                            validate_fraction=None, test_fraction=None, 
                            prepare='crop'):
     _, label_names = load_data_paths(data_directory)
@@ -213,7 +214,8 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info['trained_epochs'] = 0
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
-    network_info['image_channels'] = image_channels
+    network_info['image_color'] = image_color
+    network_info['image_channels'] = 3 if image_color == "rgb" else 1
     network_info['validate_fraction'] = validate_fraction
     network_info['test_fraction'] = test_fraction
     network_info['train_acc'] = list()
@@ -236,6 +238,7 @@ def train_image_classifier(data_directory, model='img_classifier',
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
+    image_color = network_info['image_color']
     image_channels = network_info['image_channels']
     prepare = network_info['prepare']
     n_classes = len(label_names)
@@ -287,11 +290,11 @@ def train_image_classifier(data_directory, model='img_classifier',
         for epoch in range(n_epoch):
             start_time = time.time()
             
-            train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+            train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
             X_train = np.asarray(train_images, dtype=np.float32)
             y_train = np.asarray(train_labels, dtype=np.int32)
     
-            validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+            validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
             X_validate = np.asarray(validate_images, dtype=np.float32)
             y_validate = np.asarray(validate_labels, dtype=np.int32)
         
@@ -321,7 +324,7 @@ def train_image_classifier(data_directory, model='img_classifier',
         print("Testing Network ...")
         if test_fraction == 0:
             test_paths_dict = train_paths_dict
-        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
         X_test = np.asarray(test_images, dtype=np.float32)
         y_test = np.asarray(test_labels, dtype=np.int32)
 
@@ -369,6 +372,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
+    image_color = network_info['image_color']
     image_channels = network_info['image_channels']
     prepare = network_info['prepare']
     
@@ -384,8 +388,8 @@ def run_image_classifier(image_paths, model='img_classifier'):
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
     
     for image_path in image_paths:
-        image = data.imread(image_path)
-        
+        image = read_image(image_path, image_color)
+
         if prepare == 'crop':
             image = center_crop_image(image, image_width, image_height)
         elif prepare == 'resize':
@@ -411,6 +415,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
+    image_color = network_info['image_color']
     image_channels = network_info['image_channels']
 
     n_classes = len(label_names)
@@ -425,7 +430,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
-        big_image = data.imread(image_path)
+        big_image = read_image(image_path, image_color)
         print(image_path)
 
         statistics_dict = dict()
@@ -497,6 +502,7 @@ def load_network(network=None, sess=None, network_info=None, model='img_classifi
     
 def cnn_network(image_width, image_height, image_channels, n_classes, batch_size=100):
     x = tf.placeholder(tf.float32, shape=[batch_size, image_width, image_height, image_channels])
+
     y_target = tf.placeholder(tf.int64, shape=[batch_size,])
 
     network = tl.layers.InputLayer(x, name='input')
@@ -603,7 +609,7 @@ def split_data_paths_dict(data_paths_dict, validate_fraction=0, test_fraction=0)
     return train_paths_dict, validate_paths_dict, test_paths_dict
     
 
-def load_data_dict(data_directory, extension='.jpg'):
+def load_data_dict(data_directory, extension='.jpg', image_color='rgb'):
     """Loads the images and labels from the specified directory into a dictionary and separate list label names."""
     directories = [d for d in os.listdir(data_directory)
                    if os.path.isdir(os.path.join(data_directory, d))]
@@ -617,12 +623,12 @@ def load_data_dict(data_directory, extension='.jpg'):
                       if f.endswith(extension)]
         images = []
         for f in file_names:
-            images.append(data.imread(f))
+            images.append(read_image(f, image_color))
         data_dict[i] = images
     return data_dict, label_names
 
 
-def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32):
+def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32, image_color='rgb'):
     images = []
     labels = []
     
@@ -630,7 +636,7 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
     for _ in range(batch_size):
         label = random.choice(all_labels)
         path = random.choice(data_paths_dict[label])
-        image = data.imread(path)
+        image = read_image(path, image_color)
         
         if prepare == 'crop':
             image = random_crop_image(image, image_width, image_height)
@@ -645,6 +651,15 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
         images.append(image)
 
     return images, labels
+
+
+def read_image(image_path, image_color):
+    if image_color == 'grey':
+        image = data.imread(image_path, as_grey=True)
+        image = image.reshape(image.shape[0], image.shape[1], 1)
+    else:
+        image = data.imread(image_path)
+    return image
 
 
 def split_random_images(images, labels, width, height, count):
