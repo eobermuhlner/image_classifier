@@ -577,8 +577,9 @@ def load_data_paths(data_directory, extensions=['.jpg', '.png', '.JPG']):
     for i, d in enumerate(directories):
         label_names.append(d)
         label_directory = os.path.join(data_directory, d)
-        file_names = [os.path.join(label_directory, f)
-                      for f in os.listdir(label_directory)
+        file_names = [os.path.join(folder, f)
+                      for folder, dirs, files in os.walk(label_directory)
+                      for f in files
                       if ends_with(f, extensions)]
         data_dict[i] = file_names
     return data_dict, label_names
