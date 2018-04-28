@@ -290,11 +290,11 @@ def train_image_classifier(data_directory, model='img_classifier',
         for epoch in range(n_epoch):
             start_time = time.time()
             
-            train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
+            train_images, train_labels = random_batch(train_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color, image_channels=image_channels)
             X_train = np.asarray(train_images, dtype=np.float32)
             y_train = np.asarray(train_labels, dtype=np.int32)
     
-            validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
+            validate_images, validate_labels = random_batch(validate_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color, image_channels=image_channels)
             X_validate = np.asarray(validate_images, dtype=np.float32)
             y_validate = np.asarray(validate_labels, dtype=np.int32)
         
@@ -324,7 +324,7 @@ def train_image_classifier(data_directory, model='img_classifier',
         print("Testing Network ...")
         if test_fraction == 0:
             test_paths_dict = train_paths_dict
-        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color)
+        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color, image_channels=image_channels)
         X_test = np.asarray(test_images, dtype=np.float32)
         y_test = np.asarray(test_labels, dtype=np.int32)
 
@@ -629,7 +629,7 @@ def load_data_dict(data_directory, extension='.jpg', image_color='rgb'):
     return data_dict, label_names
 
 
-def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32, image_color='rgb'):
+def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32, image_color='rgb', image_channels=3):
     images = []
     labels = []
     
@@ -646,7 +646,7 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
             image = tl.prepro.brightness(image, is_random=True)
         elif prepare == 'resize':
             image = random_crop_image_by_factor(image, factor=0.9)
-            image = resize_image(image, image_width, image_height)
+            image = resize_image(image, image_width, image_height, image_channels)
 
         labels.append(label)
         images.append(image)
@@ -675,15 +675,15 @@ def split_random_images(images, labels, width, height, count):
     return result_images, result_labels
 
 
-def resize_images(images, width, height):
+def resize_images(images, width, height, channels):
     result_images = []
     for i in range(len(images)):
-        result_images.append(resize_image(images[i], width, height))
+        result_images.append(resize_image(images[i], width, height, channels))
     return result_images
     
 
-def resize_image(image, width, height):
-    return transform.resize(image, (height, width, 3))
+def resize_image(image, width, height, channels):
+    return transform.resize(image, (height, width, channels))
 
 
 def random_crop_images_by_factor(images, factor=0.9):
