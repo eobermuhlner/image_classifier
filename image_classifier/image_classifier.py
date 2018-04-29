@@ -268,6 +268,26 @@ def train_image_classifier(data_directory, model='img_classifier',
             len(validate_paths_dict[label]),
             len(test_paths_dict[label])))
 
+    equalize_train_data = True
+    if equalize_train_data:
+        n = 0
+        for label in range(len(label_names)):
+            n = max(n, len(train_paths_dict[label]))
+        print("Equalizing training data bins to {} elements".format(n))
+
+        for label in range(len(label_names)):
+            paths = train_paths_dict[label]
+            for i in range(n - len(paths)):
+                paths.append(paths[i % len(paths)])
+
+        print("Input images after equalization:")
+        for label in range(len(label_names)):
+            print("  {:20s} : {:3d} train images, {:3d} validate images, {:3d} test images".format(
+                label_names[label],
+                len(train_paths_dict[label]),
+                len(validate_paths_dict[label]),
+                len(test_paths_dict[label])))
+
     print("Initializing Network ...")
 
     sess = tf.Session()
