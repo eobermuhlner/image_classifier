@@ -124,9 +124,9 @@ def train_command(argv):
                            model=args.model,
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
-                           is_train=True, 
-                           split_count=args.split, 
-                           learning_rate=args.learning_rate, 
+                           is_train=True,
+                           split_count=args.split,
+                           learning_rate=args.learning_rate,
                            n_epoch=args.epoch)
 
 
@@ -232,7 +232,7 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
 def train_image_classifier(data_directory, model='img_classifier',
                            validate_fraction=0.2, test_fraction=0,
                            split_count=10, load_size=1000, batch_size=100,
-                           is_train=True, n_epoch=10, learning_rate=0.0001, print_freq=1):
+                           is_train=True, n_epoch=100, learning_rate=0.0001, print_freq=1, save_freq=10):
     
     loaded_params, network_info = load_network(model=model)
     label_names = network_info['label_names']
@@ -241,6 +241,7 @@ def train_image_classifier(data_directory, model='img_classifier',
     image_color = network_info['image_color']
     image_channels = network_info['image_channels']
     prepare = network_info['prepare']
+    trained_epochs = network_info['trained_epochs']
     n_classes = len(label_names)
     if validate_fraction is None:
         if 'validate_fraction' in network_info:
@@ -259,13 +260,14 @@ def train_image_classifier(data_directory, model='img_classifier',
     
     train_paths_dict, validate_paths_dict, test_paths_dict = split_data_paths_dict(data_paths_dict, validate_fraction=validate_fraction, test_fraction=test_fraction)
 
+    print("Input images:")
     for label in range(len(label_names)):
         print("  {:20s} : {:3d} train images, {:3d} validate images, {:3d} test images".format(
             label_names[label],
             len(train_paths_dict[label]),
             len(validate_paths_dict[label]),
             len(test_paths_dict[label])))
-    
+
     print("Initializing Network ...")
 
     sess = tf.Session()
@@ -303,7 +305,10 @@ def train_image_classifier(data_directory, model='img_classifier',
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(network.all_drop) # enable noise layers
                 sess.run(train_op, feed_dict=feed_dict)
-            
+
+            if save_freq == 0 or (epoch + 1) % save_freq == 0:
+                save_network(network, sess, None, "{}_epoch_{}".format(model, trained_epochs + epoch))
+
             if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
                 print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
                 
@@ -475,9 +480,10 @@ def save_network(network, sess, network_info, model='img_classifier'):
         weight_file = model + '.weights.npz'
         tl.files.save_npz(network.all_params , name=weight_file, sess=sess)
 
-    info_file = model + '.model'
-    with open(info_file, 'w') as outfile:
-        json.dump(network_info, outfile, indent=4)
+    if network_info is not None:
+        info_file = model + '.model'
+        with open(info_file, 'w') as outfile:
+            json.dump(network_info, outfile, indent=4)
 
 
 def load_network(network=None, sess=None, network_info=None, model='img_classifier'):
