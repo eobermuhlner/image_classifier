@@ -185,6 +185,10 @@ def detect_command(argv):
     parser.add_argument('--data',
                         default=".",
                         help="Root directory containing one subdirectory filled with images for every category.")
+    parser.add_argument('--threshold',
+                        type=int,
+                        default=0.95,
+                        help="Threshold to consider a category as detected.")
     parser.add_argument('--actions',
                         default='',
                         help="Comma separated actions for categories: in the form category=action. Valid actions are: 'count', 'ignore', 'alert'.")
@@ -197,7 +201,7 @@ def detect_command(argv):
         if len(action_assignment) == 2:
             action_dict[action_assignment[0]] = action_assignment[1]
 
-    detect_image_classifier(args.images, model=args.model, action_dict=action_dict)
+    detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict)
 
 
 def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_color="rgb",
@@ -306,6 +310,8 @@ def train_image_classifier(data_directory, model='img_classifier',
     if loaded_params is not None:
         tl.files.assign_params(sess, loaded_params, network)
 
+    total_start_time = time.time()
+
     if is_train:
         print("Training Network ...")
 
@@ -326,7 +332,7 @@ def train_image_classifier(data_directory, model='img_classifier',
                 feed_dict.update(network.all_drop) # enable noise layers
                 sess.run(train_op, feed_dict=feed_dict)
 
-            if save_freq == 0 or (epoch + 1) % save_freq == 0:
+            if epoch % save_freq == 0:
                 save_network(network, sess, None, "{}_epoch_{}".format(model, trained_epochs + epoch))
 
             if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
@@ -343,8 +349,9 @@ def train_image_classifier(data_directory, model='img_classifier',
                 network_info['validate_acc'].append(validate_acc)
     
         network_info['trained_epochs'] += n_epoch
-    
-        save_network(network, sess, network_info, model)    
+
+        save_network(network, sess, network_info, model)
+        print("Finished training {} epochs after {} s".format(n_epoch, time.time() - total_start_time))
     else:
         print("Testing Network ...")
         if test_fraction == 0:
@@ -354,14 +361,14 @@ def train_image_classifier(data_directory, model='img_classifier',
         y_test = np.asarray(test_labels, dtype=np.int32)
 
         y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
-        
+
+        print("Finished testing after {} s".format(n_epoch, time.time() - total_start_time))
         confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
         plt.imshow(confusion)
         plt.show()
 
     sess.close()
     
-    print("Finished Training")
     print("Train acc:   ", network_info['train_acc'])
     print("Validate acc:", network_info['validate_acc'])
     
@@ -434,7 +441,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
                 print("{:5.1f}% : {}".format(v * 100, label_names[i]))
 
 
-def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict()):
+def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict(), threshold=0.9):
 
     loaded_params, network_info = load_network(model=model)
     label_names = network_info['label_names']
@@ -475,12 +482,14 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                     results = [(i, x) for i, x in enumerate(res[0])]
                     results = sorted(results, key=lambda e: e[1], reverse=True)
                     for i, v in results:
-                        if v > 0.5:
+                        if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'save':
+                                if image_channels == 1:
+                                    image = image.reshape(image.shape[0], image.shape[1])
                                 io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, os.path.basename(image_path)), image)
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'count':
