@@ -17,6 +17,7 @@ import tensorlayer as tl
 from skimage import data
 from skimage import io
 from skimage import transform
+from skimage import color
 import matplotlib.pyplot as plt
 
 
@@ -192,6 +193,9 @@ def detect_command(argv):
     parser.add_argument('--actions',
                         default='',
                         help="Comma separated actions for categories: in the form category=action. Valid actions are: 'count', 'ignore', 'alert'.")
+    parser.add_argument('--heatmap',
+                        default=None,
+                        help="Create a heatmap for the specified label.")
 
     args = parser.parse_args(argv)
 
@@ -201,7 +205,7 @@ def detect_command(argv):
         if len(action_assignment) == 2:
             action_dict[action_assignment[0]] = action_assignment[1]
 
-    detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict)
+    detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict, heatmap_label_name=args.heatmap)
 
 
 def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_color="rgb",
@@ -441,7 +445,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
                 print("{:5.1f}% : {}".format(v * 100, label_names[i]))
 
 
-def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict(), threshold=0.9):
+def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict(), heatmap_label_name=None, threshold=0.9):
 
     loaded_params, network_info = load_network(model=model)
     label_names = network_info['label_names']
@@ -462,8 +466,15 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
+        image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
         print(image_path)
+
+        if heatmap_label_name is not None:
+            if image_color == 'grey':
+                heatmap_image = color.gray2rgb(big_image.reshape(big_image.shape[0], big_image.shape[1]))
+            else:
+                heatmap_image = color.gray2rgb(color.rgb2gray(big_image))
 
         statistics_dict = dict()
         for label in label_names:
@@ -474,7 +485,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
             image_x = 0
             while image_x < big_image.shape[1]:
                 image = crop_image(big_image, image_x, image_y, image_width, image_height)
-                if image.shape[0] == image_width and image.shape[1] == image_height:
+                if image.shape[0] == image_height and image.shape[1] == image_width:
                     X_run = np.asarray([image], dtype=np.float32)
                     feed_dict = {x: X_run}
                     feed_dict.update(dp_dict)
@@ -482,6 +493,9 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                     results = [(i, x) for i, x in enumerate(res[0])]
                     results = sorted(results, key=lambda e: e[1], reverse=True)
                     for i, v in results:
+                        if heatmap_label_name is not None:
+                            if label_names[i] == heatmap_label_name:
+                                heatmap_image[image_x:image_x+image_width, image_y:image_y+image_height, 0] *= v
                         if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
@@ -490,7 +504,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                             elif action == 'save':
                                 if image_channels == 1:
                                     image = image.reshape(image.shape[0], image.shape[1])
-                                io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, os.path.basename(image_path)), image)
+                                io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, image_basename), image)
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'count':
                                 statistics_dict[label_names[i]] += 1
@@ -502,6 +516,10 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
             action = action_dict.get(label, 'count')
             if action != 'ignore':
                 print("  {} : {:d}".format(label, count))
+
+        if heatmap_label_name is not None:
+            io.imsave("heatmap_{}_{}".format(heatmap_label_name, image_basename), heatmap_image)
+
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
