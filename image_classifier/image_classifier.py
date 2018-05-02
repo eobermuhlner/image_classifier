@@ -495,7 +495,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                     for i, v in results:
                         if heatmap_label_name is not None:
                             if label_names[i] == heatmap_label_name:
-                                heatmap_image[image_x:image_x+image_width, image_y:image_y+image_height, 0] *= v
+                                heatmap_image[image_y:image_y+image_height, image_x:image_x+image_width, 0] *= v * v
                         if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
@@ -763,7 +763,7 @@ def random_crop_image(image, width, height):
     h = image.shape[1]
     x = random.randint(0, w - width)
     y = random.randint(0, h - height)
-    return image[x:x+width, y:y+height]
+    return crop_image(x, y, width, height)
 
 
 def center_crop_image(image, width, height):
@@ -771,11 +771,11 @@ def center_crop_image(image, width, height):
     h = image.shape[1]
     x = int((w - width) / 2)
     y = int((h - height) / 2)
-    return image[x:x+width, y:y+height]
+    return crop_image(x, y, width, height)
 
 
 def crop_image(image, x, y, width, height):
-    return image[x:x+width, y:y+height]
+    return image[y:y+height, x:x+width]
 
 
 if __name__ == '__main__':
