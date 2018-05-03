@@ -14,11 +14,29 @@ import random
 import numpy as np
 import tensorflow as tf
 import tensorlayer as tl
+import matplotlib.pyplot as plt
 from skimage import data
 from skimage import io
 from skimage import transform
 from skimage import color
-import matplotlib.pyplot as plt
+from enum import Enum
+
+class ColorMode(Enum):
+    gray = 'gray'
+    rgb = 'r'
+
+class DistortAxes(Enum):
+    horizontal = 'horizontal'
+    vertical = 'vertical'
+    both = 'both'
+
+class ImagePreprocess(Enum):
+    sample_norm = 'sample_norm'
+    none = 'none'
+
+class ImagePrepare(Enum):
+    crop = 'crop'
+    resize = 'resize'
 
 
 def main():
@@ -63,8 +81,8 @@ def model_command(argv):
                         default=0.0,
                         help="Test fraction of the training data.")
     parser.add_argument('--color',
-                        choices=['rgb', 'grey'],
-                        default='rgb',
+                        choices=[ColorMode.rgb, ColorMode.gray],
+                        default=ColorMode.rgb,
                         help="Color channel of images to use.")
     parser.add_argument('--width',
                         type=int,
@@ -75,9 +93,13 @@ def model_command(argv):
                         default=32,
                         help="Image height.")
     parser.add_argument('--prepare',
-                        choices=['crop', 'resize', 'crop+random'],
-                        default='crop',
+                        choices=[ImagePrepare.crop, ImagePrepare.resize],
+                        default=ImagePrepare.crop,
                         help="How to prepare the input images to fit the desired width/height.")
+    parser.add_argument('--distort',
+                        choices=[DistortAxes.horizontal, DistortAxes.vertical, DistortAxes.both],
+                        default=DistortAxes.horizontal,
+                        help="In which axes images allowed to be distorted.")
 
     args = parser.parse_args(argv)
 
@@ -87,8 +109,9 @@ def model_command(argv):
                            test_fraction=args.test, 
                            image_width=args.width, 
                            image_height=args.height,
-                           image_color=args.color,
-                           prepare=args.prepare)
+                           image_color=ColorMode(args.color),
+                           prepare=ImagePrepare(args.prepare),
+                           distort=DistortAxes(args.distort))
 
 
 def train_command(argv):    
@@ -208,9 +231,10 @@ def detect_command(argv):
     detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict, heatmap_label_name=args.heatmap)
 
 
-def model_image_classifier(data_directory, model='img_classifier', image_width=32, image_height=32, image_color="rgb",
+def model_image_classifier(data_directory, model='img_classifier',
+                           image_width=32, image_height=32, image_color=ColorMode.rgb,
                            validate_fraction=None, test_fraction=None, 
-                           prepare='crop'):
+                           prepare=ImagePrepare.crop, distort=DistortAxes.horizontal):
     _, label_names = load_data_paths(data_directory)
         
     sess = tf.Session()
@@ -218,12 +242,13 @@ def model_image_classifier(data_directory, model='img_classifier', image_width=3
     network_info = dict()
     network_info['version'] = '0.1'
     network_info['label_names'] = label_names
-    network_info['prepare'] = prepare
+    network_info['prepare'] = prepare.value
+    network_info['distort'] = distort.value
     network_info['trained_epochs'] = 0
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
-    network_info['image_color'] = image_color
-    network_info['image_channels'] = 3 if image_color == "rgb" else 1
+    network_info['image_color'] = image_color.value
+    network_info['image_channels'] = 3 if image_color == ColorMode.rgb else 1
     network_info['validate_fraction'] = validate_fraction
     network_info['test_fraction'] = test_fraction
     network_info['train_acc'] = list()
@@ -246,9 +271,10 @@ def train_image_classifier(data_directory, model='img_classifier',
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
-    image_color = network_info['image_color']
-    image_channels = network_info['image_channels']
-    prepare = network_info['prepare']
+    image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
+    image_channels = network_info.get('image_channels', 1)
+    prepare = ImagePrepare(network_info.get('prepare', ImagePrepare.crop.value))
+    distort = DistortAxes(network_info.get('distort', DistortAxes.horizontal.value))
     trained_epochs = network_info['trained_epochs']
     n_classes = len(label_names)
     if validate_fraction is None:
@@ -331,7 +357,13 @@ def train_image_classifier(data_directory, model='img_classifier',
             y_validate = np.asarray(validate_labels, dtype=np.int32)
         
             for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
-                X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
+                if distort is DistortAxes.horizontal:
+                    distort_fun = distort_img_horizontal
+                elif distort is DistortAxes.vertical:
+                    distort_fun = distort_img_vertical
+                elif distort is DistortAxes.both:
+                    distort_fun = distort_img_both
+                X_train_batch = tl.prepro.threading_data(X_train_batch, distort_fun)
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(network.all_drop) # enable noise layers
                 sess.run(train_op, feed_dict=feed_dict)
@@ -382,8 +414,20 @@ def train_image_classifier(data_directory, model='img_classifier',
     plt.show()
 
 
-def distort_img(img):
+def distort_img_horizontal(img):
     img = tl.prepro.flip_axis(img, axis=1, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    return img
+
+
+def distort_img_vertical(img):
+    img = tl.prepro.flip_axis(img, axis=0, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    return img
+
+
+def distort_img_both(img):
+    img = tl.prepro.flip_axis(img, axis=2, is_random=True)
     img = tl.prepro.brightness(img, is_random=True)
     return img
 
@@ -408,10 +452,10 @@ def run_image_classifier(image_paths, model='img_classifier'):
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
-    image_color = network_info['image_color']
-    image_channels = network_info['image_channels']
-    prepare = network_info['prepare']
-    
+    image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
+    image_channels = network_info.get('image_channels', 1)
+    prepare = ImagePrepare(network_info.get('prepare', ImagePrepare.crop.value))
+
     n_classes = len(label_names)
     batch_size = 1
 
@@ -426,9 +470,9 @@ def run_image_classifier(image_paths, model='img_classifier'):
     for image_path in image_paths:
         image = read_image(image_path, image_color)
 
-        if prepare == 'crop':
+        if prepare is ImagePrepare.crop:
             image = center_crop_image(image, image_width, image_height)
-        elif prepare == 'resize':
+        elif prepare is ImagePrepare.resize:
             image = random_crop_image_by_factor(image, factor=0.9)
             image = resize_image(image, image_width, image_height)
     
@@ -451,8 +495,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
-    image_color = network_info['image_color']
-    image_channels = network_info['image_channels']
+    image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
+    image_channels = network_info.get('image_channels', 1)
 
     n_classes = len(label_names)
     batch_size = 1
@@ -471,7 +515,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         print(image_path)
 
         if heatmap_label_name is not None:
-            if image_color == 'grey':
+            if image_color is ColorMode.gray:
                 heatmap_image = color.gray2rgb(big_image.reshape(big_image.shape[0], big_image.shape[1]))
             else:
                 heatmap_image = color.gray2rgb(color.rgb2gray(big_image))
@@ -667,7 +711,7 @@ def split_data_paths_dict(data_paths_dict, validate_fraction=0, test_fraction=0)
     return train_paths_dict, validate_paths_dict, test_paths_dict
     
 
-def load_data_dict(data_directory, extension='.jpg', image_color='rgb'):
+def load_data_dict(data_directory, extension='.jpg', image_color=ColorMode.rgb):
     """Loads the images and labels from the specified directory into a dictionary and separate list label names."""
     directories = [d for d in os.listdir(data_directory)
                    if os.path.isdir(os.path.join(data_directory, d))]
@@ -686,7 +730,7 @@ def load_data_dict(data_directory, extension='.jpg', image_color='rgb'):
     return data_dict, label_names
 
 
-def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32, image_height=32, image_color='rgb', image_channels=3):
+def random_batch(data_paths_dict, batch_size=100, prepare=ImagePrepare.crop, image_width=32, image_height=32, image_color=ColorMode.rgb, image_channels=3):
     images = []
     labels = []
     
@@ -696,12 +740,9 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
         path = random.choice(data_paths_dict[label])
         image = read_image(path, image_color)
         
-        if prepare == 'crop':
+        if prepare is ImagePrepare.crop:
             image = random_crop_image(image, image_width, image_height)
-        elif prepare == 'crop+random':
-            image = random_crop_image(image, image_width, image_height)
-            image = tl.prepro.brightness(image, is_random=True)
-        elif prepare == 'resize':
+        elif prepare is ImagePrepare.resize:
             image = random_crop_image_by_factor(image, factor=0.9)
             image = resize_image(image, image_width, image_height, image_channels)
 
@@ -712,7 +753,7 @@ def random_batch(data_paths_dict, batch_size=100, prepare='crop', image_width=32
 
 
 def read_image(image_path, image_color):
-    if image_color == 'grey':
+    if image_color is ColorMode.gray:
         image = data.imread(image_path, as_grey=True)
         image = image.reshape(image.shape[0], image.shape[1], 1)
     else:
@@ -767,7 +808,7 @@ def random_crop_image(image, width, height):
     h = image.shape[1]
     x = random.randint(0, w - width)
     y = random.randint(0, h - height)
-    return crop_image(x, y, width, height)
+    return crop_image(image, x, y, width, height)
 
 
 def center_crop_image(image, width, height):
