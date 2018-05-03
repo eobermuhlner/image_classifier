@@ -96,6 +96,10 @@ def model_command(argv):
                         choices=[ImagePrepare.crop, ImagePrepare.resize],
                         default=ImagePrepare.crop,
                         help="How to prepare the input images to fit the desired width/height.")
+    parser.add_argument('--preprocess',
+                        choices=[ImagePreprocess.none, ImagePreprocess.sample_norm],
+                        default=ImagePreprocess.sample_norm,
+                        help="How to preprocess the input images for optimal training.")
     parser.add_argument('--distort',
                         choices=[DistortAxes.horizontal, DistortAxes.vertical, DistortAxes.both],
                         default=DistortAxes.horizontal,
@@ -234,7 +238,7 @@ def detect_command(argv):
 def model_image_classifier(data_directory, model='img_classifier',
                            image_width=32, image_height=32, image_color=ColorMode.rgb,
                            validate_fraction=None, test_fraction=None, 
-                           prepare=ImagePrepare.crop, distort=DistortAxes.horizontal):
+                           prepare=ImagePrepare.crop, preprocess=ImagePreprocess.none, distort=DistortAxes.horizontal):
     _, label_names = load_data_paths(data_directory)
         
     sess = tf.Session()
@@ -243,6 +247,7 @@ def model_image_classifier(data_directory, model='img_classifier',
     network_info['version'] = '0.1'
     network_info['label_names'] = label_names
     network_info['prepare'] = prepare.value
+    network_info['preprocess'] = preprocess.value
     network_info['distort'] = distort.value
     network_info['trained_epochs'] = 0
     network_info['image_width'] = image_width
@@ -274,6 +279,7 @@ def train_image_classifier(data_directory, model='img_classifier',
     image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
     image_channels = network_info.get('image_channels', 1)
     prepare = ImagePrepare(network_info.get('prepare', ImagePrepare.crop.value))
+    preprocess = ImagePreprocess(network_info.get('preprocess', ImagePreprocess.none.value))
     distort = DistortAxes(network_info.get('distort', DistortAxes.horizontal.value))
     trained_epochs = network_info['trained_epochs']
     n_classes = len(label_names)
@@ -342,7 +348,7 @@ def train_image_classifier(data_directory, model='img_classifier',
 
     total_start_time = time.time()
 
-    distort_fun = get_distort_fun(distort)
+    distort_fun = get_distort_fun(distort, preprocess)
 
     if is_train:
         print("Training Network ...")
@@ -410,14 +416,23 @@ def train_image_classifier(data_directory, model='img_classifier',
     plt.show()
 
 
-def get_distort_fun(distort):
-    if distort is DistortAxes.horizontal:
+def get_distort_fun(distort, preprocess):
+    if preprocess is ImagePreprocess.sample_norm:
+        if distort is DistortAxes.horizontal:
+            return distort_img_horizontal_sample_norm
+        elif distort is DistortAxes.vertical:
+            return distort_img_vertical_sample_norm
+        elif distort is DistortAxes.both:
+            return distort_img_both
+        return distort_img_horizontal_sample_norm
+    else:
+        if distort is DistortAxes.horizontal:
+            return distort_img_horizontal
+        elif distort is DistortAxes.vertical:
+            return distort_img_vertical
+        elif distort is DistortAxes.both:
+            return distort_img_both
         return distort_img_horizontal
-    elif distort is DistortAxes.vertical:
-        return distort_img_vertical
-    elif distort is DistortAxes.both:
-        return distort_img_both
-    return distort_img_horizontal
 
 
 def distort_img_horizontal(img):
@@ -435,6 +450,27 @@ def distort_img_vertical(img):
 def distort_img_both(img):
     img = tl.prepro.flip_axis(img, axis=2, is_random=True)
     img = tl.prepro.brightness(img, is_random=True)
+    return img
+
+
+def distort_img_horizontal_sample_norm(img):
+    img = tl.prepro.flip_axis(img, axis=1, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    img = tl.prepro.samplewise_norm(img, samplewise_center=True, samplewise_std_normalization=True)
+    return img
+
+
+def distort_img_vertical_sample_norm(img):
+    img = tl.prepro.flip_axis(img, axis=0, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    img = tl.prepro.samplewise_norm(img, samplewise_center=True, samplewise_std_normalization=True)
+    return img
+
+
+def distort_img_both_sample_norm(img):
+    img = tl.prepro.flip_axis(img, axis=2, is_random=True)
+    img = tl.prepro.brightness(img, is_random=True)
+    img = tl.prepro.samplewise_norm(img, samplewise_center=True, samplewise_std_normalization=True)
     return img
 
 
@@ -461,6 +497,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
     image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
     image_channels = network_info.get('image_channels', 1)
     prepare = ImagePrepare(network_info.get('prepare', ImagePrepare.crop.value))
+    preprocess = ImagePreprocess(network_info.get('preprocess', ImagePreprocess.none.value))
 
     n_classes = len(label_names)
     batch_size = 1
@@ -481,7 +518,10 @@ def run_image_classifier(image_paths, model='img_classifier'):
         elif prepare is ImagePrepare.resize:
             image = random_crop_image_by_factor(image, factor=0.9)
             image = resize_image(image, image_width, image_height)
-    
+
+        if preprocess is ImagePreprocess.sample_norm:
+            image = tl.prepro.samplewise_norm(image, samplewise_center=True, samplewise_std_normalization=True)
+
         X_run = np.asarray([image], dtype=np.float32)
 
         feed_dict = {x: X_run}
