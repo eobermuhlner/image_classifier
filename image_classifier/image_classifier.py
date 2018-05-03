@@ -519,8 +519,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                 heatmap_image = color.gray2rgb(big_image.reshape(big_image.shape[0], big_image.shape[1]))
             else:
                 heatmap_image = color.gray2rgb(color.rgb2gray(big_image))
-            heatmap_image[:,:,:] += 1.0
-            heatmap_image[:,:,:] *= 0.5
+            heatmap_image[:, :, :] += 1.0
+            heatmap_image[:, :, :] *= 0.5
 
         statistics_dict = dict()
         for label in label_names:
@@ -541,7 +541,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                     for i, v in results:
                         if heatmap_label_name is not None:
                             if label_names[i] == heatmap_label_name:
-                                heatmap_image[image_y:image_y+image_height, image_x:image_x+image_width, 0:2] *= v * v
+                                heatmap_image[image_y:image_y+image_height, image_x:image_x+image_width, 1:3] *= v * v
                         if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
@@ -564,8 +564,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                 print("  {} : {:d}".format(label, count))
 
         if heatmap_label_name is not None:
-            heatmap_image[:,:,:] *= 2.0
-            heatmap_image[:,:,:] -= 1.0
+            heatmap_image[:, :, :] *= 2.0
+            heatmap_image[:, :, :] -= 1.0
             io.imsave("heatmap_{}_{}".format(heatmap_label_name, image_basename), heatmap_image)
 
 
