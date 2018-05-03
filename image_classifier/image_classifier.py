@@ -342,6 +342,8 @@ def train_image_classifier(data_directory, model='img_classifier',
 
     total_start_time = time.time()
 
+    distort_fun = get_distort_fun(distort)
+
     if is_train:
         print("Training Network ...")
 
@@ -357,12 +359,6 @@ def train_image_classifier(data_directory, model='img_classifier',
             y_validate = np.asarray(validate_labels, dtype=np.int32)
         
             for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
-                if distort is DistortAxes.horizontal:
-                    distort_fun = distort_img_horizontal
-                elif distort is DistortAxes.vertical:
-                    distort_fun = distort_img_vertical
-                elif distort is DistortAxes.both:
-                    distort_fun = distort_img_both
                 X_train_batch = tl.prepro.threading_data(X_train_batch, distort_fun)
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(network.all_drop) # enable noise layers
@@ -374,12 +370,12 @@ def train_image_classifier(data_directory, model='img_classifier',
             if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
                 print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
                 
-                train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
+                train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, distort_fun, cost, acc, batch_size)
                 print("    Train loss: {:8.5f}".format(train_loss))
                 print("    Train acc:  {:8.5f}".format(train_acc))
                 network_info['train_acc'].append(train_acc)
                 
-                validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
+                validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, distort_fun, cost, acc, batch_size)
                 print("    Validate loss: {:8.5f}".format(validate_loss))
                 print("    Validate acc:  {:8.5f}".format(validate_acc))
                 network_info['validate_acc'].append(validate_acc)
@@ -414,6 +410,16 @@ def train_image_classifier(data_directory, model='img_classifier',
     plt.show()
 
 
+def get_distort_fun(distort):
+    if distort is DistortAxes.horizontal:
+        return distort_img_horizontal
+    elif distort is DistortAxes.vertical:
+        return distort_img_vertical
+    elif distort is DistortAxes.both:
+        return distort_img_both
+    return distort_img_horizontal
+
+
 def distort_img_horizontal(img):
     img = tl.prepro.flip_axis(img, axis=1, is_random=True)
     img = tl.prepro.brightness(img, is_random=True)
@@ -432,10 +438,10 @@ def distort_img_both(img):
     return img
 
 
-def calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size=100):
+def calculate_metrics(network, sess, X_train, y_train, x, y_target, distort_fun, cost, acc, batch_size=100):
     train_loss, train_acc, n_batch = 0, 0, 0
     for X_train_batch, y_train_batch in tl.iterate.minibatches(X_train, y_train, batch_size, shuffle=True):
-        X_train_batch = tl.prepro.threading_data(X_train_batch, distort_img)
+        X_train_batch = tl.prepro.threading_data(X_train_batch, distort_fun)
         dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
         feed_dict = {x: X_train_batch, y_target: y_train_batch}
         feed_dict.update(dp_dict)
