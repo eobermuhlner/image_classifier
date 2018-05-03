@@ -21,18 +21,22 @@ from skimage import transform
 from skimage import color
 from enum import Enum
 
+
 class ColorMode(Enum):
     gray = 'gray'
     rgb = 'r'
+
 
 class DistortAxes(Enum):
     horizontal = 'horizontal'
     vertical = 'vertical'
     both = 'both'
 
+
 class ImagePreprocess(Enum):
     sample_norm = 'sample_norm'
     none = 'none'
+
 
 class ImagePrepare(Enum):
     crop = 'crop'
@@ -81,8 +85,8 @@ def model_command(argv):
                         default=0.0,
                         help="Test fraction of the training data.")
     parser.add_argument('--color',
-                        choices=[ColorMode.rgb, ColorMode.gray],
-                        default=ColorMode.rgb,
+                        choices=[ColorMode.rgb.value, ColorMode.gray.value],
+                        default=ColorMode.rgb.value,
                         help="Color channel of images to use.")
     parser.add_argument('--width',
                         type=int,
@@ -93,16 +97,16 @@ def model_command(argv):
                         default=32,
                         help="Image height.")
     parser.add_argument('--prepare',
-                        choices=[ImagePrepare.crop, ImagePrepare.resize],
-                        default=ImagePrepare.crop,
+                        choices=[ImagePrepare.crop.value, ImagePrepare.resize.value],
+                        default=ImagePrepare.crop.value,
                         help="How to prepare the input images to fit the desired width/height.")
     parser.add_argument('--preprocess',
-                        choices=[ImagePreprocess.none, ImagePreprocess.sample_norm],
-                        default=ImagePreprocess.sample_norm,
+                        choices=[ImagePreprocess.none.value, ImagePreprocess.sample_norm.value],
+                        default=ImagePreprocess.sample_norm.value,
                         help="How to preprocess the input images for optimal training.")
     parser.add_argument('--distort',
-                        choices=[DistortAxes.horizontal, DistortAxes.vertical, DistortAxes.both],
-                        default=DistortAxes.horizontal,
+                        choices=[DistortAxes.horizontal.value, DistortAxes.vertical.value, DistortAxes.both.value],
+                        default=DistortAxes.horizontal.value,
                         help="In which axes images allowed to be distorted.")
 
     args = parser.parse_args(argv)

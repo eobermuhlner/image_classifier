@@ -12,7 +12,7 @@ You need the following packages installed in your python environment:
 
 The following documentation assumes that you created an executable file `classify` and have added it to the `PATH`.
  
-In Linux the executable could look like this: 
+In Linux the executable script could look like this: 
 ```bash
 #!/bin/bash
 
