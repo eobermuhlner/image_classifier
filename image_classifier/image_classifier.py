@@ -550,15 +550,9 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     image_channels = network_info.get('image_channels', 1)
 
     n_classes = len(label_names)
-    batch_size = 1
+    batch_size = 0
 
     sess = tf.Session()
-
-    network, x, _, _, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
-    tl.layers.initialize_global_variables(sess)
-    tl.files.assign_params(sess, loaded_params, network)
-
-    dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
         image_basename = os.path.basename(image_path)
@@ -577,17 +571,40 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         for label in label_names:
             statistics_dict[label] = 0
 
+        images = []
         image_y = 0
         while image_y < big_image.shape[0]:
             image_x = 0
             while image_x < big_image.shape[1]:
                 image = crop_image(big_image, image_x, image_y, image_width, image_height)
                 if image.shape[0] == image_height and image.shape[1] == image_width:
-                    X_run = np.asarray([image], dtype=np.float32)
-                    feed_dict = {x: X_run}
-                    feed_dict.update(dp_dict)
-                    res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
-                    results = [(i, x) for i, x in enumerate(res[0])]
+                    images.append(image)
+                image_x += image_width
+            image_y += image_height
+
+        if len(images) != batch_size:
+            print("Creating CNN")
+            batch_size = len(images)
+            network, x, _, _, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+            tl.layers.initialize_global_variables(sess)
+            tl.files.assign_params(sess, loaded_params, network)
+
+            dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
+
+        X_run = np.asarray(images, dtype=np.float32)
+        feed_dict = {x: X_run}
+        feed_dict.update(dp_dict)
+        res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
+
+        res_index = 0
+        image_y = 0
+        while image_y < big_image.shape[0]:
+            image_x = 0
+            while image_x < big_image.shape[1]:
+                image = crop_image(big_image, image_x, image_y, image_width, image_height)
+                if image.shape[0] == image_height and image.shape[1] == image_width:
+                    results = [(i, x) for i, x in enumerate(res[res_index])]
+                    res_index += 1
                     results = sorted(results, key=lambda e: e[1], reverse=True)
                     for i, v in results:
                         if heatmap_label_name is not None:
@@ -596,19 +613,19 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 rr, cc = draw.line(image_y, image_x, image_y+image_height-1, image_x)
                                 heatmap_image[rr, cc, 0] = v * v
                                 heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v
+                                heatmap_image[rr, cc, 2] = v * v * v * v
                                 rr, cc = draw.line(image_y, image_x, image_y, image_x+image_width-1)
                                 heatmap_image[rr, cc, 0] = v * v
                                 heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v
+                                heatmap_image[rr, cc, 2] = v * v * v * v
                                 rr, cc = draw.line(image_y+image_height-1, image_x, image_y+image_height-1, image_x+image_width-1)
                                 heatmap_image[rr, cc, 0] = v * v
                                 heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v
+                                heatmap_image[rr, cc, 2] = v * v * v * v
                                 rr, cc = draw.line(image_y, image_x+image_width-1, image_y+image_height-1, image_x+image_width-1)
                                 heatmap_image[rr, cc, 0] = v * v
                                 heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v
+                                heatmap_image[rr, cc, 2] = v * v * v * v
                         if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
@@ -621,7 +638,6 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'count':
                                 statistics_dict[label_names[i]] += 1
-
                 image_x += image_width
             image_y += image_height
 
