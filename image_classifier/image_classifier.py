@@ -702,7 +702,7 @@ def cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, 
 
     network = tl.layers.InputLayer(x, name='input')
 
-    int image_size = max(image_width, image_height)
+    image_size = max(image_width, image_height)
     if cnn_data == 'cnn1':
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
