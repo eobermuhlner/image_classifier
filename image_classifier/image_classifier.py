@@ -109,13 +109,18 @@ def model_command(argv):
                         choices=[DistortAxes.horizontal.value, DistortAxes.vertical.value, DistortAxes.both.value],
                         default=DistortAxes.horizontal.value,
                         help="In which axes images allowed to be distorted.")
+    parser.add_argument('--cnn',
+                        choices=['cnn1', 'cnn2'],
+                        default='cnn1',
+                        help="Defines the CNN.")
 
     args = parser.parse_args(argv)
 
     model_image_classifier(args.data, 
                            model=args.model,
                            validate_fraction=args.validate, 
-                           test_fraction=args.test, 
+                           test_fraction=args.test,
+                           cnn_data=args.cnn,
                            image_width=args.width, 
                            image_height=args.height,
                            image_color=ColorMode(args.color),
@@ -242,6 +247,7 @@ def detect_command(argv):
 
 
 def model_image_classifier(data_directory, model='img_classifier',
+                           cnn_data='cnn1',
                            image_width=32, image_height=32, image_color=ColorMode.rgb,
                            validate_fraction=None, test_fraction=None, 
                            prepare=ImagePrepare.crop, preprocess=ImagePreprocess.none, distort=DistortAxes.horizontal):
@@ -251,6 +257,7 @@ def model_image_classifier(data_directory, model='img_classifier',
 
     network_info = dict()
     network_info['version'] = '0.1'
+    network_info['cnn'] = cnn_data
     network_info['label_names'] = label_names
     network_info['prepare'] = prepare.value
     network_info['preprocess'] = preprocess.value
@@ -279,6 +286,7 @@ def train_image_classifier(data_directory, model='img_classifier',
                            is_train=True, n_epoch=100, learning_rate=0.0001, print_freq=1, save_freq=10):
     
     loaded_params, network_info = load_network(model=model)
+    cnn_data = network_info.get('cnn', 'cnn1')
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
@@ -338,7 +346,7 @@ def train_image_classifier(data_directory, model='img_classifier',
 
     sess = tf.Session()
 
-    network, x, y_target, y_op, cost, acc = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, y_target, y_op, cost, acc = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
 
     train_params = network.all_params
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate,
@@ -497,6 +505,7 @@ def calculate_metrics(network, sess, X_train, y_train, x, y_target, distort_fun,
 def run_image_classifier(image_paths, model='img_classifier'):
     
     loaded_params, network_info = load_network(model=model)
+    cnn_data = network_info.get('cnn', 'cnn1')
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
@@ -510,7 +519,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
 
     sess = tf.Session()
 
-    network, x, _, _, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
     tl.layers.initialize_global_variables(sess)
     tl.files.assign_params(sess, loaded_params, network)
         
@@ -544,6 +553,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
 def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict(), heatmap_label_name=None, threshold=0.9):
 
     loaded_params, network_info = load_network(model=model)
+    cnn_data = network_info.get('cnn', 'cnn1')
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
@@ -586,7 +596,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         if len(images) != batch_size:
             print("Creating CNN")
             batch_size = len(images)
-            network, x, _, _, _, _ = cnn_network(image_width, image_height, image_channels, n_classes, batch_size)
+            network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
             tl.layers.initialize_global_variables(sess)
             tl.files.assign_params(sess, loaded_params, network)
 
@@ -685,64 +695,57 @@ def load_network(network=None, sess=None, network_info=None, model='img_classifi
     return loaded_params, loaded_info
 
     
-def cnn_network(image_width, image_height, image_channels, n_classes, batch_size=100):
+def cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size=100):
     x = tf.placeholder(tf.float32, shape=[batch_size, image_width, image_height, image_channels])
 
     y_target = tf.placeholder(tf.int64, shape=[batch_size,])
 
     network = tl.layers.InputLayer(x, name='input')
 
-    network = tl.layers.Conv2d(network,
-                               n_filter=32,
-                               filter_size=(5, 5),
-                               strides=(1, 1),
-                               act=tf.nn.elu,
-                               padding='SAME',
-                               name='conv1')
-    network = tl.layers.MaxPool2d(network,
-                                  filter_size=(2, 2),
-                                  strides=(2, 2),
-                                  padding='SAME',
-                                  name='pool1')
-    network = tl.layers.Conv2d(network,
-                               n_filter=64,
-                               filter_size=(5, 5),
-                               strides=(1, 1),
-                               act=tf.nn.elu,
-                               padding='SAME',
-                               name='conv2')
-    network = tl.layers.MaxPool2d(network,
-                                  filter_size=(2, 2),
-                                  strides=(2, 2),
-                                  padding='SAME',
-                                  name='pool2')
-    network = tl.layers.Conv2d(network,
-                               n_filter=128,
-                               filter_size=(5, 5),
-                               strides=(1, 1),
-                               act=tf.nn.elu,
-                               padding='SAME',
-                               name='conv3')
-    network = tl.layers.MaxPool2d(network,
-                                  filter_size=(2, 2),
-                                  strides=(2, 2),
-                                  padding='SAME',
-                                  name='pool3')
-    network = tl.layers.Conv2d(network,
-                               n_filter=256,
-                               filter_size=(5, 5),
-                               strides=(1, 1),
-                               act=tf.nn.elu,
-                               padding='SAME',
-                               name='conv4')
-    network = tl.layers.MaxPool2d(network,
-                                  filter_size=(2, 2),
-                                  strides=(2, 2),
-                                  padding='SAME',
-                                  name='pool4')
-    network = tl.layers.FlattenLayer(network, name='flatten')
-    network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
-    network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
+    int image_size = max(image_width, image_height)
+    if cnn_data == 'cnn1':
+        conv_index = 1
+        conv_filter_count = 32 if image_size > 32 else image_size
+        while conv_filter_count <= image_size * 2:
+            network = tl.layers.Conv2d(network,
+                                       n_filter=conv_filter_count,
+                                       filter_size=(5, 5),
+                                       strides=(1, 1),
+                                       act=tf.nn.elu,
+                                       padding='SAME',
+                                       name="conv{}".format(conv_index))
+            network = tl.layers.MaxPool2d(network,
+                                          filter_size=(2, 2),
+                                          strides=(2, 2),
+                                          padding='SAME',
+                                          name="pool{}".format(conv_index))
+            conv_index += 1
+            conv_filter_count *= 2
+        network = tl.layers.FlattenLayer(network, name='flatten')
+        network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
+        network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
+    elif cnn_data == 'cnn2':
+        conv_index = 1
+        conv_filter_count = 32 if image_size > 32 else image_size
+        while conv_filter_count <= image_size * 2:
+            for conv_sub_index in range(1, 3):
+                network = tl.layers.Conv2d(network,
+                                           n_filter=conv_filter_count,
+                                           filter_size=(3, 3),
+                                           strides=(1, 1),
+                                           act=tf.nn.elu,
+                                           padding='SAME',
+                                           name="conv{}_{}".format(conv_index, conv_sub_index))
+            network = tl.layers.MaxPool2d(network,
+                                          filter_size=(2, 2),
+                                          strides=(2, 2),
+                                          padding='SAME',
+                                          name="pool{}".format(conv_index))
+            conv_index += 1
+            conv_filter_count *= 2
+        network = tl.layers.FlattenLayer(network, name='flatten')
+        network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
+        network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
 
     y = network.outputs
     y_op = tf.argmax(tf.nn.softmax(y), 1)
