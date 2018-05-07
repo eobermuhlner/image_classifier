@@ -120,6 +120,7 @@ def model_command(argv):
                            image_height=args.height,
                            image_color=ColorMode(args.color),
                            prepare=ImagePrepare(args.prepare),
+                           preprocess=ImagePreprocess(args.preprocess),
                            distort=DistortAxes(args.distort))
 
 
@@ -611,21 +612,21 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                             if label_names[i] == heatmap_label_name:
                                 heatmap_image[image_y:image_y+image_height, image_x:image_x+image_width, 1:3] *= v * v
                                 rr, cc = draw.line(image_y, image_x, image_y+image_height-1, image_x)
-                                heatmap_image[rr, cc, 0] = v * v
-                                heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v * v
+                                heatmap_image[rr, cc, 0] = v
+                                heatmap_image[rr, cc, 1] = v * v
+                                heatmap_image[rr, cc, 2] = v * v * v
                                 rr, cc = draw.line(image_y, image_x, image_y, image_x+image_width-1)
-                                heatmap_image[rr, cc, 0] = v * v
-                                heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v * v
+                                heatmap_image[rr, cc, 0] = v
+                                heatmap_image[rr, cc, 1] = v * v
+                                heatmap_image[rr, cc, 2] = v * v * v
                                 rr, cc = draw.line(image_y+image_height-1, image_x, image_y+image_height-1, image_x+image_width-1)
-                                heatmap_image[rr, cc, 0] = v * v
-                                heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v * v
+                                heatmap_image[rr, cc, 0] = v
+                                heatmap_image[rr, cc, 1] = v * v
+                                heatmap_image[rr, cc, 2] = v * v * v
                                 rr, cc = draw.line(image_y, image_x+image_width-1, image_y+image_height-1, image_x+image_width-1)
-                                heatmap_image[rr, cc, 0] = v * v
-                                heatmap_image[rr, cc, 1] = v * v * v
-                                heatmap_image[rr, cc, 2] = v * v * v * v
+                                heatmap_image[rr, cc, 0] = v
+                                heatmap_image[rr, cc, 1] = v * v
+                                heatmap_image[rr, cc, 2] = v * v * v
                         if v > threshold:
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
