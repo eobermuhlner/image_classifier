@@ -561,9 +561,15 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     image_channels = network_info.get('image_channels', 1)
 
     n_classes = len(label_names)
-    batch_size = 0
+    batch_size = 1
 
     sess = tf.Session()
+
+    network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
+    tl.layers.initialize_global_variables(sess)
+    tl.files.assign_params(sess, loaded_params, network)
+
+    dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
         image_basename = os.path.basename(image_path)
@@ -582,40 +588,18 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         for label in label_names:
             statistics_dict[label] = 0
 
-        images = []
         image_y = 0
         while image_y < big_image.shape[0]:
             image_x = 0
             while image_x < big_image.shape[1]:
                 image = crop_image(big_image, image_x, image_y, image_width, image_height)
                 if image.shape[0] == image_height and image.shape[1] == image_width:
-                    images.append(image)
-                image_x += image_width
-            image_y += image_height
+                    X_run = np.asarray([image], dtype=np.float32)
+                    feed_dict = {x: X_run}
+                    feed_dict.update(dp_dict)
+                    res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
 
-        if len(images) != batch_size:
-            print("Creating CNN")
-            batch_size = len(images)
-            network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
-            tl.layers.initialize_global_variables(sess)
-            tl.files.assign_params(sess, loaded_params, network)
-
-            dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
-
-        X_run = np.asarray(images, dtype=np.float32)
-        feed_dict = {x: X_run}
-        feed_dict.update(dp_dict)
-        res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
-
-        res_index = 0
-        image_y = 0
-        while image_y < big_image.shape[0]:
-            image_x = 0
-            while image_x < big_image.shape[1]:
-                image = crop_image(big_image, image_x, image_y, image_width, image_height)
-                if image.shape[0] == image_height and image.shape[1] == image_width:
-                    results = [(i, x) for i, x in enumerate(res[res_index])]
-                    res_index += 1
+                    results = [(i, x) for i, x in enumerate(res[0])]
                     results = sorted(results, key=lambda e: e[1], reverse=True)
                     for i, v in results:
                         if heatmap_label_name is not None:
@@ -903,7 +887,7 @@ def center_crop_image(image, width, height):
     h = image.shape[1]
     x = int((w - width) / 2)
     y = int((h - height) / 2)
-    return crop_image(x, y, width, height)
+    return crop_image(image, x, y, width, height)
 
 
 def crop_image(image, x, y, width, height):
