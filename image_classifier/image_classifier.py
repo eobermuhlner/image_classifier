@@ -103,7 +103,7 @@ def model_command(argv):
                         help="How to prepare the input images to fit the desired width/height.")
     parser.add_argument('--preprocess',
                         choices=[ImagePreprocess.none.value, ImagePreprocess.sample_norm.value],
-                        default=ImagePreprocess.sample_norm.value,
+                        default=ImagePreprocess.none.value,
                         help="How to preprocess the input images for optimal training.")
     parser.add_argument('--distort',
                         choices=[DistortAxes.horizontal.value, DistortAxes.vertical.value, DistortAxes.both.value],
@@ -346,7 +346,7 @@ def train_image_classifier(data_directory, model='img_classifier',
 
     sess = tf.Session()
 
-    network, x, y_target, y_op, cost, acc = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, y_target, y_op, cost, acc = cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n_classes, batch_size)
 
     train_params = network.all_params
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate,
@@ -519,7 +519,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
 
     sess = tf.Session()
 
-    network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
     tl.layers.initialize_global_variables(sess)
     tl.files.assign_params(sess, loaded_params, network)
         
@@ -565,7 +565,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
 
     sess = tf.Session()
 
-    network, x, _, _, _, _ = cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size)
+    network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
     tl.layers.initialize_global_variables(sess)
     tl.files.assign_params(sess, loaded_params, network)
 
@@ -679,7 +679,7 @@ def load_network(network=None, sess=None, network_info=None, model='img_classifi
     return loaded_params, loaded_info
 
     
-def cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, batch_size=100):
+def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n_classes, batch_size=100):
     x = tf.placeholder(tf.float32, shape=[batch_size, image_width, image_height, image_channels])
 
     y_target = tf.placeholder(tf.int64, shape=[batch_size,])
@@ -712,7 +712,7 @@ def cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, 
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
         while conv_filter_count <= image_size * 2:
-            for conv_sub_index in range(1, 3):
+            for conv_sub_index in range(1, 4):
                 network = tl.layers.Conv2d(network,
                                            n_filter=conv_filter_count,
                                            filter_size=(3, 3),
@@ -720,11 +720,12 @@ def cnn_network(cnn_data, image_width, image_height, image_channels, n_classes, 
                                            act=tf.nn.elu,
                                            padding='SAME',
                                            name="conv{}_{}".format(conv_index, conv_sub_index))
+            network = tl.layers.BatchNormLayer(network, is_train, act=tf.nn.elu, name="batch{}".format(conv_index))
             network = tl.layers.MaxPool2d(network,
-                                          filter_size=(2, 2),
-                                          strides=(2, 2),
-                                          padding='SAME',
-                                          name="pool{}".format(conv_index))
+                                      filter_size=(2, 2),
+                                      strides=(2, 2),
+                                      padding='SAME',
+                                      name="pool{}".format(conv_index))
             conv_index += 1
             conv_filter_count *= 2
         network = tl.layers.FlattenLayer(network, name='flatten')
