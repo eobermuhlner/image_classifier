@@ -686,7 +686,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
 
     network = tl.layers.InputLayer(x, name='input')
 
-    image_size = max(image_width, image_height)
+    image_size = max(image_width, image_height) * 2
     if cnn_data == 'cnn1':
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
@@ -720,7 +720,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
                                            act=tf.nn.elu,
                                            padding='SAME',
                                            name="conv{}_{}".format(conv_index, conv_sub_index))
-            network = tl.layers.BatchNormLayer(network, is_train, act=tf.nn.elu, name="batch{}".format(conv_index))
+            network = tl.layers.BatchNormLayer(network, is_train=is_train, act=tf.nn.elu, name="batch{}".format(conv_index))
             network = tl.layers.MaxPool2d(network,
                                       filter_size=(2, 2),
                                       strides=(2, 2),
