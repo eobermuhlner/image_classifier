@@ -406,8 +406,14 @@ def train_image_classifier(data_directory, model='img_classifier',
         print("Finished training {} epochs after {} s".format(n_epoch, time.time() - total_start_time))
     else:
         print("Testing Network ...")
+        for layer_index in range(0, len(network.all_params)):
+            print("Layer {}".format(layer_index), network.all_params[layer_index].eval(session=sess).shape)
+
         if test_fraction == 0:
-            test_paths_dict = train_paths_dict
+            if validate_fraction == 0:
+                test_paths_dict = train_paths_dict
+            else:
+                test_paths_dict = validate_paths_dict
         test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color, image_channels=image_channels)
         X_test = np.asarray(test_images, dtype=np.float32)
         y_test = np.asarray(test_labels, dtype=np.int32)
@@ -415,8 +421,11 @@ def train_image_classifier(data_directory, model='img_classifier',
         y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
 
         print("Finished testing after {} s".format(n_epoch, time.time() - total_start_time))
+
         confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
         plt.imshow(confusion)
+        plt.xticks([x for x in range(0, len(label_names))], label_names, rotation='vertical')
+        plt.yticks([y for y in range(0, len(label_names))], label_names)
         plt.show()
 
     sess.close()
