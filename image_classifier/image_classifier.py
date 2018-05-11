@@ -156,6 +156,14 @@ def train_command(argv):
                         type=int,
                         default=10,
                         help="Number of epochs to train.")
+    parser.add_argument('--load-size',
+                        type=int,
+                        default=1000,
+                        help="The full load size used for training.")
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=100,
+                        help="The batch size used for the mini batches during training.")
 
     args = parser.parse_args(argv)
 
@@ -166,7 +174,9 @@ def train_command(argv):
                            is_train=True,
                            split_count=args.split,
                            learning_rate=args.learning_rate,
-                           n_epoch=args.epoch)
+                           n_epoch=args.epoch,
+                           load_size=args.load_size,
+                           batch_size=min(args.load_size, args.batch_size))
 
 
 def test_command(argv):
@@ -184,6 +194,14 @@ def test_command(argv):
     parser.add_argument('--test',
                         type=float,
                         help="Test fraction of the training data.")
+    parser.add_argument('--load-size',
+                        type=int,
+                        default=1000,
+                        help="The full load size used for training.")
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=100,
+                        help="The batch size used for the mini batches during training.")
 
     args = parser.parse_args(argv)
 
@@ -191,7 +209,9 @@ def test_command(argv):
                            model=args.model,
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
-                           is_train=False)
+                           is_train=False,
+                           load_size=args.load_size,
+                           batch_size=min(args.load_size, args.batch_size))
 
 
 def run_command(argv):
@@ -418,15 +438,42 @@ def train_image_classifier(data_directory, model='img_classifier',
         X_test = np.asarray(test_images, dtype=np.float32)
         y_test = np.asarray(test_labels, dtype=np.int32)
 
-        y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
+        if False:
+            y_test_predict = tl.utils.predict(sess, network, X_test, x, y_op, batch_size)
 
-        print("Finished testing after {} s".format(n_epoch, time.time() - total_start_time))
+            print("Finished testing after {} s".format(n_epoch, time.time() - total_start_time))
 
-        confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
-        plt.imshow(confusion)
-        plt.xticks([x for x in range(0, len(label_names))], label_names, rotation='vertical')
-        plt.yticks([y for y in range(0, len(label_names))], label_names)
-        plt.show()
+            confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
+            plt.imshow(confusion)
+            plt.xticks([x for x in range(0, len(label_names))], label_names, rotation='vertical')
+            plt.yticks([y for y in range(0, len(label_names))], label_names)
+            plt.show()
+
+        if True:
+            result = None
+            for X_a, _ in tl.utils.iterate.minibatches(X_test, X_test, batch_size, shuffle=False):
+                dp_dict = tl.utils.dict_to_one(network.all_drop)
+                feed_dict = {
+                    x: X_a,
+                }
+                feed_dict.update(dp_dict)
+                result_a = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
+                if result is None:
+                    result = result_a
+                else:
+                    result = np.concatenate((result, result_a))
+                for i, label in enumerate(label_names):
+                    label_results = [(X_a[x], result[x, i]) for x in range(0, len(result))]
+                    label_results.sort(key=lambda e: e[1], reverse=True)
+                    plt.figure(1)
+                    plt.suptitle(label)
+                    for j in range(0, min(16, len(label_results))):
+                        label_result = label_results[j]
+                        plt.subplot(4, 4, j+1)
+                        plt.imshow(label_result[0].reshape(label_result[0].shape[0], label_result[0].shape[1]), cmap='gray')
+                        plt.axis('off')
+                        plt.title(label_result[1])
+                    plt.show()
 
     sess.close()
     
@@ -695,7 +742,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
 
     network = tl.layers.InputLayer(x, name='input')
 
-    image_size = max(image_width, image_height) * 2
+    image_size = max(image_width, image_height)
     if cnn_data == 'cnn1':
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
