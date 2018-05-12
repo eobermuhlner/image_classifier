@@ -444,45 +444,71 @@ def train_image_classifier(data_directory, model='img_classifier',
             print("Finished testing after {} s".format(n_epoch, time.time() - total_start_time))
 
             confusion, _, _, _ = tl.utils.evaluation(y_test, y_test_predict, n_classes)
+            plt.figure(1)
             plt.imshow(confusion)
             plt.xticks([x for x in range(0, len(label_names))], label_names, rotation='vertical')
             plt.yticks([y for y in range(0, len(label_names))], label_names)
+            plt.savefig("confusion.png".format(label))
             plt.show()
 
         if True:
             result = None
-            for X_a, _ in tl.utils.iterate.minibatches(X_test, X_test, batch_size, shuffle=False):
+            best_label_results = [[] for x in range(len(label_names))]
+            worst_label_results = [[] for x in range(len(label_names))]
+            grid_size = 5
+            for X_a, y_a in tl.utils.iterate.minibatches(X_test, y_test, batch_size, shuffle=False):
                 dp_dict = tl.utils.dict_to_one(network.all_drop)
                 feed_dict = {
-                    x: X_a,
+                    x: X_a, y_target: y_a
                 }
                 feed_dict.update(dp_dict)
-                result_a = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
+                result_a, target_y_a = sess.run([tf.nn.softmax(network.outputs), y_target], feed_dict=feed_dict)
                 if result is None:
                     result = result_a
                 else:
                     result = np.concatenate((result, result_a))
                 for i, label in enumerate(label_names):
-                    label_results = [(X_a[x], result[x, i]) for x in range(0, len(result))]
+                    label_results = [(X_a[x], result_a[x, i]) for x in range(len(result_a)) if target_y_a[x] == i]
                     label_results.sort(key=lambda e: e[1], reverse=True)
-                    plt.figure(1)
-                    plt.suptitle(label)
-                    for j in range(0, min(16, len(label_results))):
-                        label_result = label_results[j]
-                        plt.subplot(4, 4, j+1)
-                        plt.imshow(label_result[0].reshape(label_result[0].shape[0], label_result[0].shape[1]), cmap='gray')
-                        plt.axis('off')
-                        plt.title(label_result[1])
-                    plt.show()
+                    best_label_results[i].extend(label_results[:grid_size*grid_size])
+                    worst_label_results[i].extend(label_results[-grid_size*grid_size-1:])
+
+            for i, label in enumerate(label_names):
+                best_label_results[i].sort(key=lambda e: e[1], reverse=True)
+                worst_label_results[i].sort(key=lambda e: e[1])
+
+                plt.figure(1)
+                plt.suptitle("Best {}".format(label))
+                for j in range(0, min(grid_size*grid_size, len(best_label_results[i]))):
+                    label_result = best_label_results[i][j]
+                    plt.subplot(grid_size, grid_size, j+1)
+                    plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    plt.axis('off')
+                    plt.title("{:.4f}".format(label_result[1]))
+                plt.savefig("sample_best_{}.png".format(label))
+                plt.show()
+
+                plt.figure(1)
+                plt.suptitle("Worst {}".format(label))
+                for j in range(0, min(grid_size*grid_size, len(worst_label_results[i]))):
+                    label_result = worst_label_results[i][j]
+                    plt.subplot(grid_size, grid_size, j+1)
+                    plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    plt.axis('off')
+                    plt.title("{:.4f}".format(label_result[1]))
+                plt.savefig("sample_worst_{}.png".format(label))
+                plt.show()
 
     sess.close()
     
     print("Train acc:   ", network_info['train_acc'])
     print("Validate acc:", network_info['validate_acc'])
-    
+
+    plt.figure(1)
     plt.plot(network_info['train_acc'], label="Train Accuracy")
     plt.plot(network_info['validate_acc'], label="Validate Accuracy")
     plt.legend()
+    plt.savefig("training_accuracy.png".format(label))
     plt.show()
 
 
@@ -634,7 +660,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
 
         if heatmap_label_name is not None:
             if image_color is ColorMode.gray:
-                heatmap_image = color.gray2rgb(big_image.reshape(big_image.shape[0], big_image.shape[1]))
+                heatmap_image = color.gray2rgb(reshape_to_image(big_image))
             else:
                 heatmap_image = color.gray2rgb(color.rgb2gray(big_image))
             heatmap_image[:, :, :] += 1.0
@@ -684,7 +710,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'save':
                                 if image_channels == 1:
-                                    image = image.reshape(image.shape[0], image.shape[1])
+                                    image = reshape_to_image(image)
                                 io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, image_basename), image)
                                 statistics_dict[label_names[i]] += 1
                             elif action == 'count':
@@ -767,7 +793,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
     elif cnn_data == 'cnn2':
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
-        while conv_filter_count <= image_size * 2:
+        while conv_filter_count <= image_size * 4:
             for conv_sub_index in range(1, 4):
                 network = tl.layers.Conv2d(network,
                                            n_filter=conv_filter_count,
@@ -887,6 +913,10 @@ def read_image(image_path, image_color):
     else:
         image = data.imread(image_path)
     return image
+
+
+def reshape_to_image(image):
+    return image.reshape(image.shape[0], image.shape[1])
 
 
 def split_random_images(images, labels, width, height, count):
