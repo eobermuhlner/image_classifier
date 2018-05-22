@@ -303,7 +303,7 @@ def model_image_classifier(data_directory, model='img_classifier',
 def train_image_classifier(data_directory, model='img_classifier',
                            validate_fraction=0.2, test_fraction=0,
                            split_count=10, load_size=1000, batch_size=100,
-                           is_train=True, n_epoch=100, learning_rate=0.0001, print_freq=1, save_freq=10):
+                           is_train=True, n_epoch=100, learning_rate=0.0001, print_freq=1, save_freq=10, tensorboard=True):
     
     loaded_params, network_info = load_network(model=model)
     cnn_data = network_info.get('cnn', 'cnn1')
@@ -387,6 +387,16 @@ def train_image_classifier(data_directory, model='img_classifier',
     if is_train:
         print("Training Network ...")
 
+        if tensorboard:
+            tl.files.exists_or_mkdir('_logs/')
+            train_writer = tf.summary.FileWriter('_logs/train')
+            val_writer = tf.summary.FileWriter('_logs/validation')
+            for param in network.all_params:
+                tf.summary.histogram(param.name, param)
+            tf.summary.scalar('cost', cost)
+
+        tensorboard_train_index, tensorboard_val_index = 0, 0
+
         for epoch in range(n_epoch):
             start_time = time.time()
             
@@ -402,7 +412,11 @@ def train_image_classifier(data_directory, model='img_classifier',
                 X_train_batch = tl.prepro.threading_data(X_train_batch, distort_fun)
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(network.all_drop) # enable noise layers
-                sess.run(train_op, feed_dict=feed_dict)
+                result = sess.run(train_op, feed_dict=feed_dict)
+
+                #if tensorboard:
+                #    train_writer.add_summary(result, tensorboard_train_index)
+                #    tensorboard_train_index += 1
 
             if epoch % save_freq == 0:
                 save_network(network, sess, None, "{}_epoch_{}".format(model, trained_epochs + epoch))
@@ -455,7 +469,7 @@ def train_image_classifier(data_directory, model='img_classifier',
             result = None
             best_label_results = [[] for x in range(len(label_names))]
             worst_label_results = [[] for x in range(len(label_names))]
-            grid_size = 5
+            grid_size = 6
             for X_a, y_a in tl.utils.iterate.minibatches(X_test, y_test, batch_size, shuffle=False):
                 dp_dict = tl.utils.dict_to_one(network.all_drop)
                 feed_dict = {
@@ -826,7 +840,8 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
 
 def load_data_paths(data_directory, extensions=['.jpg', '.png', '.JPG']):
     directories = [d for d in os.listdir(data_directory)
-                   if os.path.isdir(os.path.join(data_directory, d))]
+                   if os.path.isdir(os.path.join(data_directory, d))
+                   if not d.startswith("_")]
     label_names = []
     data_dict = dict()
     for i, d in enumerate(directories):
