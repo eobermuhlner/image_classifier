@@ -12,7 +12,30 @@ import tensorlayer as tl
 from skimage import data
 from skimage import io
 from skimage import transform
-import matplotlib.pyplot as plt
+from skimage import color
+from skimage import draw
+from enum import Enum
+
+
+class ColorMode(Enum):
+    gray = 'gray'
+    rgb = 'r'
+
+
+class DistortAxes(Enum):
+    horizontal = 'horizontal'
+    vertical = 'vertical'
+    both = 'both'
+
+
+class ImagePreprocess(Enum):
+    sample_norm = 'sample_norm'
+    none = 'none'
+
+
+class ImagePrepare(Enum):
+    crop = 'crop'
+    resize = 'resize'
 
 
 def main():
@@ -55,8 +78,8 @@ def model_command(argv):
                         default=0.0,
                         help="Test fraction of the training data.")
     parser.add_argument('--color',
-                        choices=['rgb', 'gray'],
-                        default='rgb',
+                        choices=[ColorMode.rgb.value, ColorMode.gray.value],
+                        default=ColorMode.rgb.value,
                         help="Color channel of images to use.")
     parser.add_argument('--width',
                         type=int,
@@ -67,20 +90,35 @@ def model_command(argv):
                         default=32,
                         help="Image height.")
     parser.add_argument('--prepare',
-                        choices=['crop', 'resize'],
-                        default='crop',
+                        choices=[ImagePrepare.crop.value, ImagePrepare.resize.value],
+                        default=ImagePrepare.crop.value,
                         help="How to prepare the input images to fit the desired width/height.")
+    parser.add_argument('--preprocess',
+                        choices=[ImagePreprocess.none.value, ImagePreprocess.sample_norm.value],
+                        default=ImagePreprocess.none.value,
+                        help="How to preprocess the input images for optimal training.")
+    parser.add_argument('--distort',
+                        choices=[DistortAxes.horizontal.value, DistortAxes.vertical.value, DistortAxes.both.value],
+                        default=DistortAxes.horizontal.value,
+                        help="In which axes images allowed to be distorted.")
+    parser.add_argument('--cnn',
+                        choices=['cnn1', 'cnn2'],
+                        default='cnn1',
+                        help="Defines the CNN.")
 
     args = parser.parse_args(argv)
 
-    model_image_values(args.label_names.split(","),
-                       model=args.model,
-                       validate_fraction=args.validate,
-                       test_fraction=args.test,
-                       image_width=args.width,
-                       image_height=args.height,
-                       image_color=args.color,
-                       prepare=args.prepare)
+    model_image_classifier(args.label_names.split(","),
+                           model=args.model,
+                           validate_fraction=args.validate,
+                           test_fraction=args.test,
+                           cnn_data=args.cnn,
+                           image_width=args.width,
+                           image_height=args.height,
+                           image_color=ColorMode(args.color),
+                           prepare=ImagePrepare(args.prepare),
+                           preprocess=ImagePreprocess(args.preprocess),
+                           distort=DistortAxes(args.distort))
 
 
 def train_command(argv):    
@@ -109,6 +147,14 @@ def train_command(argv):
                         type=int,
                         default=10,
                         help="Number of epochs to train.")
+    parser.add_argument('--load-size',
+                        type=int,
+                        default=1000,
+                        help="The full load size used for training.")
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=100,
+                        help="The batch size used for the mini batches during training.")
 
     args = parser.parse_args(argv)
 
@@ -117,9 +163,12 @@ def train_command(argv):
                            model=args.model,
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
-                           is_train=True, 
+                           is_train=True,
+                           split_count=args.split,
                            learning_rate=args.learning_rate,
-                           n_epoch=args.epoch)
+                           n_epoch=args.epoch,
+                           load_size=args.load_size,
+                           batch_size=min(args.load_size, args.batch_size))
 
 
 def test_command(argv):
@@ -137,6 +186,14 @@ def test_command(argv):
     parser.add_argument('--test',
                         type=float,
                         help="Test fraction of the training data.")
+    parser.add_argument('--load-size',
+                        type=int,
+                        default=1000,
+                        help="The full load size used for training.")
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=100,
+                        help="The batch size used for the mini batches during training.")
 
     args = parser.parse_args(argv)
 
@@ -144,7 +201,9 @@ def test_command(argv):
                            model=args.model,
                            validate_fraction=args.validate, 
                            test_fraction=args.test,
-                           is_train=False)
+                           is_train=False,
+                           load_size=args.load_size,
+                           batch_size=min(args.load_size, args.batch_size))
 
 
 def run_command(argv):
@@ -172,13 +231,16 @@ def model_image_values(label_names, model='img_values', image_width=32, image_he
 
     network_info = dict()
     network_info['version'] = '0.1'
+    network_info['cnn'] = cnn_data
     network_info['label_names'] = label_names
-    network_info['prepare'] = prepare
+    network_info['prepare'] = prepare.value
+    network_info['preprocess'] = preprocess.value
+    network_info['distort'] = distort.value
     network_info['trained_epochs'] = 0
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
-    network_info['image_color'] = image_color
-    network_info['image_channels'] = 3 if image_color == "rgb" else 1
+    network_info['image_color'] = image_color.value
+    network_info['image_channels'] = 3 if image_color == ColorMode.rgb else 1
     network_info['validate_fraction'] = validate_fraction
     network_info['test_fraction'] = test_fraction
     network_info['train_acc'] = list()
@@ -195,15 +257,20 @@ def model_image_values(label_names, model='img_values', image_width=32, image_he
 def train_image_classifier(data_directory, csv_file, model='img_values',
                            validate_fraction=0.2, test_fraction=0,
                            load_size=1000, batch_size=100,
-                           is_train=True, n_epoch=10, learning_rate=0.0001, print_freq=1):
+                           is_train=True, n_epoch=100, learning_rate=0.0001, print_freq=1, save_freq=10):
     
     loaded_params, network_info = load_network(model=model)
+    cnn_data = network_info.get('cnn', 'cnn1')
     label_names = network_info['label_names']
     image_width = network_info['image_width']
     image_height = network_info['image_height']
-    image_color = network_info['image_color']
-    image_channels = network_info['image_channels']
-    prepare = network_info['prepare']
+    image_color = ColorMode(network_info.get('image_color', ColorMode.gray.value))
+    image_channels = network_info.get('image_channels', 1)
+    prepare = ImagePrepare(network_info.get('prepare', ImagePrepare.crop.value))
+    preprocess = ImagePreprocess(network_info.get('preprocess', ImagePreprocess.none.value))
+    distort = DistortAxes(network_info.get('distort', DistortAxes.horizontal.value))
+    trained_epochs = network_info['trained_epochs']
+    n_classes = len(label_names)
     if validate_fraction is None:
         if 'validate_fraction' in network_info:
             validate_fraction = network_info['validate_fraction']
@@ -233,7 +300,7 @@ def train_image_classifier(data_directory, csv_file, model='img_values',
 
     sess = tf.Session()
 
-    network, x, y_target, y_op, cost, acc = cnn_network(image_width, image_height, image_channels, len(label_names), batch_size)
+    network, x, y_target, y_op, cost, acc = cnn_network(cnn_data, is_train, image_width, image_height, image_channels, len(label_names), batch_size)
 
     train_params = network.all_params
     train_op = tf.train.AdamOptimizer(learning_rate=learning_rate,
@@ -246,6 +313,10 @@ def train_image_classifier(data_directory, csv_file, model='img_values',
     tl.layers.initialize_global_variables(sess)
     if loaded_params is not None:
         tl.files.assign_params(sess, loaded_params, network)
+
+    total_start_time = time.time()
+
+    distort_fun = get_distort_fun(distort, preprocess)
 
     if is_train:
         print("Training Network ...")
@@ -265,28 +336,38 @@ def train_image_classifier(data_directory, csv_file, model='img_values',
                 feed_dict = {x: X_train_batch, y_target: y_train_batch}
                 feed_dict.update(network.all_drop) # enable noise layers
                 sess.run(train_op, feed_dict=feed_dict)
-            
+
+            if epoch % save_freq == 0:
+                save_network(network, sess, None, "{}_epoch_{}".format(model, trained_epochs + epoch))
+
             if print_freq == 0 or epoch == 0 or (epoch + 1) % print_freq == 0:
                 print("Epoch {} of {} in {} s".format(epoch + 1, n_epoch, time.time() - start_time))
                 
-                train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, cost, acc, batch_size)
+                train_loss, train_acc = calculate_metrics(network, sess, X_train, y_train, x, y_target, distort_fun, cost, acc, batch_size)
                 print("    Train loss: {:8.5f}".format(train_loss))
                 print("    Train acc:  {:8.5f}".format(train_acc))
                 network_info['train_acc'].append(train_acc)
                 
-                validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, cost, acc, batch_size)
+                validate_loss, validate_acc = calculate_metrics(network, sess, X_validate, y_validate, x, y_target, distort_fun, cost, acc, batch_size)
                 print("    Validate loss: {:8.5f}".format(validate_loss))
                 print("    Validate acc:  {:8.5f}".format(validate_acc))
                 network_info['validate_acc'].append(validate_acc)
     
         network_info['trained_epochs'] += n_epoch
-    
-        save_network(network, sess, network_info, model)    
+
+        save_network(network, sess, network_info, model)
+        print("Finished training {} epochs after {} s".format(n_epoch, time.time() - total_start_time))
     else:
         print("Testing Network ...")
+        for layer_index in range(0, len(network.all_params)):
+            print("Layer {}".format(layer_index), network.all_params[layer_index].eval(session=sess).shape)
+
         if test_fraction == 0:
-            test_data = train_data
-        test_images, test_values = random_batch(test_data, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height)
+            if validate_fraction == 0:
+                test_paths_dict = train_paths_dict
+            else:
+                test_paths_dict = validate_paths_dict
+        test_images, test_labels = random_batch(test_paths_dict, batch_size=load_size, prepare=prepare, image_width=image_width, image_height=image_height, image_color=image_color, image_channels=image_channels)
         X_test = np.asarray(test_images, dtype=np.float32)
         y_test = np.asarray(test_values, dtype=np.float32)
 
