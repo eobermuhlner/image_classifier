@@ -25,7 +25,8 @@ from enum import Enum
 
 class ColorMode(Enum):
     gray = 'gray'
-    rgb = 'r'
+    rgb = 'rgb'
+    hsv = 'hsv'
 
 
 class DistortAxes(Enum):
@@ -86,7 +87,7 @@ def model_command(argv):
                         default=0.0,
                         help="Test fraction of the training data.")
     parser.add_argument('--color',
-                        choices=[ColorMode.rgb.value, ColorMode.gray.value],
+                        choices=[ColorMode.rgb.value, ColorMode.gray.value, ColorMode.hsv.value],
                         default=ColorMode.rgb.value,
                         help="Color channel of images to use.")
     parser.add_argument('--width',
@@ -110,7 +111,7 @@ def model_command(argv):
                         default=DistortAxes.horizontal.value,
                         help="In which axes images allowed to be distorted.")
     parser.add_argument('--cnn',
-                        choices=['cnn1', 'cnn2'],
+                        choices=['cnn1', 'cnn2', 'cnn3'],
                         default='cnn1',
                         help="Defines the CNN.")
 
@@ -286,7 +287,7 @@ def model_image_classifier(data_directory, model='img_classifier',
     network_info['image_width'] = image_width
     network_info['image_height'] = image_height
     network_info['image_color'] = image_color.value
-    network_info['image_channels'] = 3 if image_color == ColorMode.rgb else 1
+    network_info['image_channels'] = 1 if image_color == ColorMode.gray else 3
     network_info['validate_fraction'] = validate_fraction
     network_info['test_fraction'] = test_fraction
     network_info['train_acc'] = list()
@@ -496,7 +497,12 @@ def train_image_classifier(data_directory, model='img_classifier',
                 for j in range(0, min(grid_size*grid_size, len(best_label_results[i]))):
                     label_result = best_label_results[i][j]
                     plt.subplot(grid_size, grid_size, j+1)
-                    plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    if image_color == ColorMode.gray:
+                        plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    elif image_color == ColorMode.hsv:
+                        plt.imshow(color.hsv2rgb(label_result[0]))
+                    else:
+                        plt.imshow(label_result[0])
                     plt.axis('off')
                     plt.title("{:.4f}".format(label_result[1]))
                 plt.savefig("sample_best_{}.png".format(label))
@@ -507,7 +513,12 @@ def train_image_classifier(data_directory, model='img_classifier',
                 for j in range(0, min(grid_size*grid_size, len(worst_label_results[i]))):
                     label_result = worst_label_results[i][j]
                     plt.subplot(grid_size, grid_size, j+1)
-                    plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    if image_color == ColorMode.gray:
+                        plt.imshow(reshape_to_image(label_result[0]), cmap='gray')
+                    elif image_color == ColorMode.hsv:
+                        plt.imshow(color.hsv2rgb(label_result[0]))
+                    else:
+                        plt.imshow(label_result[0])
                     plt.axis('off')
                     plt.title("{:.4f}".format(label_result[1]))
                 plt.savefig("sample_worst_{}.png".format(label))
@@ -675,6 +686,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         if heatmap_label_name is not None:
             if image_color is ColorMode.gray:
                 heatmap_image = color.gray2rgb(reshape_to_image(big_image))
+            elif image_color is ColorMode.hsv:
+                heatmap_image = color.hsv2rgb(big_image)
             else:
                 heatmap_image = color.gray2rgb(color.rgb2gray(big_image))
             heatmap_image[:, :, :] += 1.0
@@ -804,7 +817,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
         network = tl.layers.FlattenLayer(network, name='flatten')
         network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
         network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
-    elif cnn_data == 'cnn2':
+    elif cnn_data == 'cnn2' or cnn_data == 'cnn3':
         conv_index = 1
         conv_filter_count = 32 if image_size > 32 else image_size
         while conv_filter_count <= image_size * 4:
@@ -825,6 +838,8 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
             conv_index += 1
             conv_filter_count *= 2
         network = tl.layers.FlattenLayer(network, name='flatten')
+        if cnn_data == 'cnn3':
+            network = tl.layers.DenseLayer(network, n_units=512, act=tf.nn.elu, name='dense1')
         network = tl.layers.DropoutLayer(network, keep=0.5, name='drop1')
         network = tl.layers.DenseLayer(network, n_units=n_classes, act=tf.identity, name='output')
 
@@ -838,7 +853,7 @@ def cnn_network(cnn_data, is_train, image_width, image_height, image_channels, n
     return network, x, y_target, y_op, cost, acc 
 
 
-def load_data_paths(data_directory, extensions=['.jpg', '.png', '.JPG']):
+def load_data_paths(data_directory, extensions=['.png', '.jpg', '.JPG', '.jpeg', '.JPEG']):
     directories = [d for d in os.listdir(data_directory)
                    if os.path.isdir(os.path.join(data_directory, d))
                    if not d.startswith("_")]
@@ -925,6 +940,9 @@ def read_image(image_path, image_color):
     if image_color is ColorMode.gray:
         image = data.imread(image_path, as_grey=True)
         image = image.reshape(image.shape[0], image.shape[1], 1)
+    elif image_color is ColorMode.hsv:
+        image = data.imread(image_path, as_grey=False)
+        image = color.rgb2hsv(image)
     else:
         image = data.imread(image_path)
     return image
