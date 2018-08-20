@@ -1,9 +1,3 @@
-'''
-Created on Oct 25, 2017
-
-@author: Eric Obermühlner
-'''
-
 import argparse
 import sys
 import os
@@ -15,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 import tensorlayer as tl
 import matplotlib.pyplot as plt
+import xml.etree.ElementTree as ElementTree
 from skimage import data
 from skimage import io
 from skimage import transform
@@ -672,6 +667,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
 
     sess = tf.Session()
 
+    detection_protocol = ElementTree.Element("detection")
+
     network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
     tl.layers.initialize_global_variables(sess)
     tl.files.assign_params(sess, loaded_params, network)
@@ -679,6 +676,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
+        image_protocol = ElementTree.SubElement(detection_protocol, "image", file=image_path)
+
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
         print(image_path)
@@ -731,6 +730,13 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 heatmap_image[rr, cc, 1] = v * v
                                 heatmap_image[rr, cc, 2] = v * v * v
                         if v > threshold:
+                            detect_protocol = ElementTree.SubElement(image_protocol, "detect",
+                                                                     type=label_names[i],
+                                                                     value=str(v),
+                                                                     x=str(image_x),
+                                                                     y=str(image_y),
+                                                                     width=str(image_width),
+                                                                     height=str(image_height))
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
@@ -754,7 +760,8 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
             heatmap_image[:, :, :] *= 2.0
             heatmap_image[:, :, :] -= 1.0
             io.imsave("heatmap_{}_{}".format(heatmap_label_name, image_basename), heatmap_image)
-
+    protocol = ElementTree.ElementTree(detection_protocol)
+    protocol.write("detection.xml")
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
@@ -942,9 +949,17 @@ def read_image(image_path, image_color):
         image = image.reshape(image.shape[0], image.shape[1], 1)
     elif image_color is ColorMode.hsv:
         image = data.imread(image_path, as_grey=False)
+        image = convert_to_standard_image(image)
         image = color.rgb2hsv(image)
     else:
         image = data.imread(image_path)
+        image = convert_to_standard_image(image)
+    return image
+
+
+def convert_to_standard_image(image):
+    if image.shape[0] == 2:
+        image = image[0]
     return image
 
 
