@@ -237,16 +237,13 @@ def detect_command(argv):
     parser.add_argument('--model',
                         default='img_classifier',
                         help="Model name.")
-    parser.add_argument('--data',
-                        default=".",
-                        help="Root directory containing one subdirectory filled with images for every category.")
     parser.add_argument('--threshold',
                         type=int,
                         default=0.95,
                         help="Threshold to consider a category as detected.")
     parser.add_argument('--actions',
                         default='',
-                        help="Comma separated actions for categories: in the form category=action. Valid actions are: 'count', 'ignore', 'alert'.")
+                        help="Comma separated actions for categories: in the form category=action. Valid actions are: 'count', 'ignore', 'alert', 'protocol'.")
     parser.add_argument('--heatmap',
                         default=None,
                         help="Create a heatmap for the specified label.")
@@ -730,23 +727,23 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 heatmap_image[rr, cc, 1] = v * v
                                 heatmap_image[rr, cc, 2] = v * v * v
                         if v > threshold:
-                            detect_protocol = ElementTree.SubElement(image_protocol, "detect",
-                                                                     type=label_names[i],
-                                                                     value=str(v),
-                                                                     x=str(image_x),
-                                                                     y=str(image_y),
-                                                                     width=str(image_width),
-                                                                     height=str(image_height))
-                            action = action_dict.get(label_names[i], 'count')
+                            statistics_dict[label_names[i]] += 1
+                            action = action_dict.get(label_names[i], 'alert')
+                            if action == 'protocol' or len(action_dict) == 0:
+                                detect_protocol = ElementTree.SubElement(image_protocol, "detect",
+                                                                         type=label_names[i],
+                                                                         value=str(v),
+                                                                         x=str(image_x),
+                                                                         y=str(image_y),
+                                                                         width=str(image_width),
+                                                                         height=str(image_height))
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
                                 statistics_dict[label_names[i]] += 1
-                            elif action == 'save':
+                            if action == 'save':
                                 if image_channels == 1:
                                     image = reshape_to_image(image)
                                 io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, image_basename), image)
-                                statistics_dict[label_names[i]] += 1
-                            elif action == 'count':
                                 statistics_dict[label_names[i]] += 1
                 image_x += image_width
             image_y += image_height
