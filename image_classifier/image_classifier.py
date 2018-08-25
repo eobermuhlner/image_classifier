@@ -243,6 +243,9 @@ def detect_command(argv):
     parser.add_argument('--image-dir',
                         default='.',
                         help="Image directory.")
+    parser.add_argument('--out-dir',
+                        default='.',
+                        help="Output directory.")
     parser.add_argument('--model',
                         default='img_classifier',
                         help="Model name.")
@@ -268,7 +271,7 @@ def detect_command(argv):
         if len(action_assignment) == 2:
             action_dict[action_assignment[0]] = action_assignment[1]
 
-    detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict, heatmap_label_name=args.heatmap)
+    detect_image_classifier(args.images, model=args.model, threshold=args.threshold, action_dict=action_dict, heatmap_label_name=args.heatmap, out_dir=args.out_dir)
 
 
 def model_image_classifier(data_directory, model='img_classifier',
@@ -661,7 +664,7 @@ def run_image_classifier(image_paths, model='img_classifier'):
                 print("{:5.1f}% : {}".format(v * 100, label_names[i]))
 
 
-def detect_image_classifier(image_paths, model='img_classifier', action_dict=dict(), heatmap_label_name=None, threshold=0.9):
+def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', action_dict=dict(), heatmap_label_name=None, threshold=0.9):
 
     loaded_params, network_info = load_network(model=model)
     cnn_data = network_info.get('cnn', 'cnn1')
@@ -755,7 +758,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                             if action == 'save':
                                 if image_channels == 1:
                                     image = reshape_to_image(image)
-                                io.imsave("{}_{}x{}_{}".format(label_names[i], image_x, image_y, image_basename), image)
+                                io.imsave(os.path.join(out_dir, "{}_{}x{}_{}".format(label_names[i], image_x, image_y, image_basename)), image)
                                 statistics_dict[label_names[i]] += 1
                 image_x += image_width
             image_y += image_height
@@ -768,9 +771,9 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
         if heatmap_label_name is not None:
             heatmap_image[:, :, :] *= 2.0
             heatmap_image[:, :, :] -= 1.0
-            io.imsave("heatmap_{}_{}".format(heatmap_label_name, image_basename), heatmap_image)
+            io.imsave(os.path.join(out_dir, "heatmap_{}_{}".format(heatmap_label_name, image_basename)), heatmap_image)
     protocol = ElementTree.ElementTree(detection_protocol)
-    protocol.write("detection.xml")
+    protocol.write(os.path.join(out_dir, "detection.xml"))
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
