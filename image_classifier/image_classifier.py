@@ -679,7 +679,8 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
 
     sess = tf.Session()
 
-    detection_protocol = ElementTree.Element("detection")
+    protocol_file = open(os.path.join(out_dir, "detection.xml"), "w")
+    protocol_file.write("<detection>\n")
 
     network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
     tl.layers.initialize_global_variables(sess)
@@ -688,7 +689,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
-        image_protocol = ElementTree.SubElement(detection_protocol, "image", file=image_path)
+        protocol_file.write("\t<image file=\"{}\">\n".format(image_path))
 
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
@@ -745,13 +746,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                             statistics_dict[label_names[i]] += 1
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'protocol' or len(action_dict) == 0:
-                                detect_protocol = ElementTree.SubElement(image_protocol, "detect",
-                                                                         type=label_names[i],
-                                                                         value=str(v),
-                                                                         x=str(image_x),
-                                                                         y=str(image_y),
-                                                                         width=str(image_width),
-                                                                         height=str(image_height))
+                                protocol_file.write("\t\t<detect type=\"{}\" value=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\">\n".format(label_names[i], v, image_x, image_y, image_width, image_height))
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
                                 statistics_dict[label_names[i]] += 1
@@ -762,6 +757,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                                 statistics_dict[label_names[i]] += 1
                 image_x += image_width
             image_y += image_height
+        protocol_file.write("\t</image>\n")
 
         for label, count in statistics_dict.items():
             action = action_dict.get(label, 'count')
@@ -772,8 +768,8 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
             heatmap_image[:, :, :] *= 2.0
             heatmap_image[:, :, :] -= 1.0
             io.imsave(os.path.join(out_dir, "heatmap_{}_{}".format(heatmap_label_name, image_basename)), heatmap_image)
-    protocol = ElementTree.ElementTree(detection_protocol)
-    protocol.write(os.path.join(out_dir, "detection.xml"))
+    protocol_file.write("</detection>\n")
+    protocol_file.close()
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
