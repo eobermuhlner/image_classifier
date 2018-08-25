@@ -214,8 +214,11 @@ def run_command(argv):
     parser = argparse.ArgumentParser(description="Run to classify images into categories.")
 
     parser.add_argument('images',
-                        nargs='+',
+                        nargs='*',
                         help="Image file.")
+    parser.add_argument('--image-dir',
+                        default='.',
+                        help="Image directory.")
     parser.add_argument('--model',
                         default='img_classifier',
                         help="Model name.")
@@ -225,6 +228,9 @@ def run_command(argv):
 
     args = parser.parse_args(argv)
 
+    if len(args.images) == 0:
+        args.images = load_image_paths(args.image_dir)
+
     run_image_classifier(args.images, model=args.model)
 
 
@@ -232,8 +238,11 @@ def detect_command(argv):
     parser = argparse.ArgumentParser(description="Run to classify images into categories.")
 
     parser.add_argument('images',
-                        nargs='+',
+                        nargs='*',
                         help="Image file.")
+    parser.add_argument('--image-dir',
+                        default='.',
+                        help="Image directory.")
     parser.add_argument('--model',
                         default='img_classifier',
                         help="Model name.")
@@ -249,6 +258,9 @@ def detect_command(argv):
                         help="Create a heatmap for the specified label.")
 
     args = parser.parse_args(argv)
+
+    if len(args.images) == 0:
+        args.images = load_image_paths(args.image_dir)
 
     action_dict = dict()
     for action in args.actions.split(","):
@@ -728,7 +740,7 @@ def detect_image_classifier(image_paths, model='img_classifier', action_dict=dic
                                 heatmap_image[rr, cc, 2] = v * v * v
                         if v > threshold:
                             statistics_dict[label_names[i]] += 1
-                            action = action_dict.get(label_names[i], 'alert')
+                            action = action_dict.get(label_names[i], 'count')
                             if action == 'protocol' or len(action_dict) == 0:
                                 detect_protocol = ElementTree.SubElement(image_protocol, "detect",
                                                                          type=label_names[i],
@@ -872,7 +884,14 @@ def load_data_paths(data_directory, extensions=['.png', '.jpg', '.JPG', '.jpeg',
                       if ends_with(f, extensions)]
         data_dict[i] = file_names
     return data_dict, label_names
-        
+
+
+def load_image_paths(image_directory, extensions=['.png', '.jpg', '.JPG', '.jpeg', '.JPEG']):
+    return [os.path.join(image_directory, f)
+            for folder, dirs, files in os.walk(image_directory)
+            for f in files
+            if ends_with(f, extensions)]
+
 
 def ends_with(name, extensions):
     for e in extensions:
