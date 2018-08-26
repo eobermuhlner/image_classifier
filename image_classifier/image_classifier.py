@@ -690,6 +690,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
 
     for image_path in image_paths:
         protocol_file.write("\t<image file=\"{}\">\n".format(image_path))
+        start_time = time.time()
 
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
@@ -758,6 +759,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                 image_x += image_width
             image_y += image_height
         protocol_file.write("\t</image>\n")
+        print("Analyzed in {} seconds.".format(time.time()-start_time))
 
         for label, count in statistics_dict.items():
             action = action_dict.get(label, 'count')
