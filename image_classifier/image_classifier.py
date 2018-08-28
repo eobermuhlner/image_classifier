@@ -677,20 +677,20 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
     n_classes = len(label_names)
     batch_size = 1
 
-    sess = tf.Session()
-
     protocol_file = open(os.path.join(out_dir, "detection.xml"), "w")
     protocol_file.write("<detection>\n")
 
     network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
-    tl.layers.initialize_global_variables(sess)
-    tl.files.assign_params(sess, loaded_params, network)
 
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
 
     for image_path in image_paths:
         protocol_file.write("\t<image file=\"{}\">\n".format(image_path))
         start_time = time.time()
+
+        sess = tf.Session()
+        tl.layers.initialize_global_variables(sess)
+        tl.files.assign_params(sess, loaded_params, network)
 
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
@@ -747,7 +747,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                             statistics_dict[label_names[i]] += 1
                             action = action_dict.get(label_names[i], 'count')
                             if action == 'protocol' or len(action_dict) == 0:
-                                protocol_file.write("\t\t<detect type=\"{}\" value=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\">\n".format(label_names[i], v, image_x, image_y, image_width, image_height))
+                                protocol_file.write("\t\t<detect type=\"{}\" value=\"{}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n".format(label_names[i], v, image_x, image_y, image_width, image_height))
                             if action == 'alert':
                                 print("  {:5.1f}% : {} at {:d}x{:d}".format(v * 100, label_names[i], image_x, image_y))
                                 statistics_dict[label_names[i]] += 1
@@ -759,6 +759,7 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                 image_x += image_width
             image_y += image_height
         protocol_file.write("\t</image>\n")
+        sess.close()
         print("Analyzed in {} seconds.".format(time.time()-start_time))
 
         for label, count in statistics_dict.items():
