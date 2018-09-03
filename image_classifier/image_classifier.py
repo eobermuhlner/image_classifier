@@ -692,7 +692,6 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
         start_time = time.time()
 
         net_out = tf.nn.softmax(network.outputs)
-        print("Session initialized after {} s".format(time.time() - start_time))
 
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
