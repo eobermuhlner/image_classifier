@@ -683,18 +683,21 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
     network, x, _, _, _, _ = cnn_network(cnn_data, False, image_width, image_height, image_channels, n_classes, batch_size)
 
     dp_dict = tl.utils.dict_to_one(network.all_drop) # disable noise layers
+    sess = tf.Session()
+    tl.layers.initialize_global_variables(sess)
+    tl.files.assign_params(sess, loaded_params, network)
 
     for image_path in image_paths:
         protocol_file.write("\t<image file=\"{}\">\n".format(image_path))
         start_time = time.time()
 
-        sess = tf.Session()
-        tl.layers.initialize_global_variables(sess)
-        tl.files.assign_params(sess, loaded_params, network)
+        net_out = tf.nn.softmax(network.outputs)
+        print("Session initialized after {} s".format(time.time() - start_time))
 
         image_basename = os.path.basename(image_path)
         big_image = read_image(image_path, image_color)
         print(image_path)
+        print("Image loaded after {} s".format(time.time() - start_time))
 
         if heatmap_label_name is not None:
             if image_color is ColorMode.gray:
@@ -709,17 +712,22 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
         statistics_dict = dict()
         for label in label_names:
             statistics_dict[label] = 0
+        print("Ready for tiling after {} s".format(time.time() - start_time))
 
+        tile_count = 0
         image_y = 0
         while image_y < big_image.shape[0]:
             image_x = 0
             while image_x < big_image.shape[1]:
                 image = crop_image(big_image, image_x, image_y, image_width, image_height)
                 if image.shape[0] == image_height and image.shape[1] == image_width:
+                    tile_count = tile_count + 1
+                    tile_start_time = time.time()
                     X_run = np.asarray([image], dtype=np.float32)
                     feed_dict = {x: X_run}
                     feed_dict.update(dp_dict)
-                    res = sess.run(tf.nn.softmax(network.outputs), feed_dict=feed_dict)
+                    res = sess.run(net_out, feed_dict=feed_dict)
+                    #print("Tile {} run in {} s".format(tile_count, time.time() - tile_start_time))
 
                     results = [(i, x) for i, x in enumerate(res[0])]
                     results = sorted(results, key=lambda e: e[1], reverse=True)
@@ -759,7 +767,6 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
                 image_x += image_width
             image_y += image_height
         protocol_file.write("\t</image>\n")
-        sess.close()
         print("Analyzed in {} seconds.".format(time.time()-start_time))
 
         for label, count in statistics_dict.items():
@@ -771,8 +778,10 @@ def detect_image_classifier(image_paths, model='img_classifier', out_dir='.', ac
             heatmap_image[:, :, :] *= 2.0
             heatmap_image[:, :, :] -= 1.0
             io.imsave(os.path.join(out_dir, "heatmap_{}_{}".format(heatmap_label_name, image_basename)), heatmap_image)
+        del big_image
     protocol_file.write("</detection>\n")
     protocol_file.close()
+    sess.close()
 
 
 def save_network(network, sess, network_info, model='img_classifier'):
